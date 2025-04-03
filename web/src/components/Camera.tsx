@@ -65,10 +65,10 @@ export function Camera({ onPuzzleDetected, isARMode }: CameraProps) {
           // Only process frames in AR mode
           if (isARMode) {
             console.log('Processing frame in AR mode...');
-            const result = await imageProcessor.current.detectPuzzleInAR(videoRef.current);
-            if (result) {
-              console.log('AR detection result:', result);
-              onPuzzleDetected(result.state);
+            const puzzleState = await imageProcessor.current.detectPuzzleInAR(videoRef.current);
+            if (puzzleState && puzzleState.size.rows > 1 && puzzleState.size.cols > 1) {
+              console.log('AR detection result:', puzzleState);
+              onPuzzleDetected(puzzleState);
             }
           }
           // In normal mode, we don't process frames continuously
@@ -130,19 +130,16 @@ export function Camera({ onPuzzleDetected, isARMode }: CameraProps) {
 
   const captureImage = async () => {
     console.log('Capture button clicked');
-    if (!videoRef.current || !imageProcessor.current) {
-      console.error('Camera or image processor not initialized:', {
-        hasVideo: !!videoRef.current,
-        hasProcessor: !!imageProcessor.current
-      });
+    if (!videoRef.current || !imageProcessor.current || isCapturing) {
       return;
     }
-
+    
     setIsCapturing(true);
-    console.log('Starting image capture...');
-
+    setError(null);
+    
     try {
-      // Create and setup canvas
+      console.log('Starting image capture...');
+      // Create a canvas to capture the current frame
       const canvas = document.createElement('canvas');
       canvas.width = videoRef.current.videoWidth;
       canvas.height = videoRef.current.videoHeight;
@@ -168,15 +165,18 @@ export function Camera({ onPuzzleDetected, isARMode }: CameraProps) {
       console.log('Image loaded, dimensions:', image.width, 'x', image.height);
       console.log('Processing image...');
       
-      const result = await imageProcessor.current.processImage(image);
-      console.log('Image processed:', result);
+      const puzzleState = await imageProcessor.current.processImage(image);
+      console.log('Image processed:', puzzleState);
       
-      if (!result || !result.state) {
-        throw new Error('Failed to detect puzzle in image');
+      // Check if the puzzle state is valid (non-empty grid)
+      if (puzzleState.size.rows <= 1 && puzzleState.size.cols <= 1) {
+        console.log('No valid puzzle detected in image');
+        setError('No puzzle detected in image. Please try again with a clear view of a sliding puzzle.');
+        return;
       }
       
       console.log('Puzzle detected, calling onPuzzleDetected...');
-      onPuzzleDetected(result.state);
+      onPuzzleDetected(puzzleState);
     } catch (error) {
       console.error('Error capturing image:', error);
       setError(`Failed to capture and process image: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -193,11 +193,32 @@ export function Camera({ onPuzzleDetected, isARMode }: CameraProps) {
     startCamera(currentFacingMode === 'environment' ? 'user' : 'environment');
   };
 
+  const clearError = () => {
+    console.log('Clearing error and returning to capture mode');
+    
+    // Reset error state
+    setError(null);
+    
+    // Restart camera if it's not streaming
+    if (!isStreaming || !streamRef.current) {
+      console.log('Camera is not streaming, restarting camera');
+      startCamera('environment'); // Force restart with back camera
+    } else {
+      console.log('Camera is already streaming');
+    }
+  };
+
   return (
     <div className="relative w-full h-full">
       {error ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-          <p className="text-red-500">{error}</p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 p-4">
+          <p className="text-red-500 text-center mb-4">{error}</p>
+          <button
+            onClick={clearError}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            Try Again
+          </button>
         </div>
       ) : (
         <>

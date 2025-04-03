@@ -211,4 +211,4 @@ function calculateManhattanDistance(
 - Sanitize data before display
 - Use proper authentication
 - Implement rate limiting
-- Follow security best practices 
+- Follow security best practices

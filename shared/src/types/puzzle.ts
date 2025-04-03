@@ -12,6 +12,7 @@ export interface PuzzleState {
   grid: number[][];
   emptyPosition: Position;
   size: Size;
+  pieces?: PuzzlePiece[];
 }
 
 export interface Move {

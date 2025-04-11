@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Slide Puzzle Solver</title>
+    <script>
+      // Pre-configure WASM paths for ONNX Runtime Web
+      window.ortWasmPaths = {
+        'ort-wasm-simd-threaded.wasm': '/js/ort-wasm-simd-threaded.wasm',
+        'ort-wasm-simd.wasm': '/js/ort-wasm-simd.wasm',
+        'ort-wasm-threaded.wasm': '/js/ort-wasm-threaded.wasm',
+        'ort-wasm.wasm': '/js/ort-wasm.wasm'
+      };
+    </script>
+    <script src="/js/ort.min.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

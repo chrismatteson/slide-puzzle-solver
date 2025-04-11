@@ -1,0 +1,20 @@
+{
+  "name": "@slide-puzzle-solver/shared",
+  "version": "1.0.0",
+  "description": "Shared types and utilities for the slide puzzle solver",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "@tensorflow-models/coco-ssd": "^2.2.3",
+    "@tensorflow/tfjs": "^4.17.0",
+    "@tensorflow/tfjs-vis": "^1.5.1",
+    "onnxruntime-web": "^1.14.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

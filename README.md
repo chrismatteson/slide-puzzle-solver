@@ -1,88 +1,256 @@
-# Slide Puzzle Solver
+# slide-puzzle-solver
 
-A web application that helps solve slide puzzles using computer vision and AI. The application can detect a slide puzzle from a camera feed, analyze its current state, and provide step-by-step instructions to solve it.
+Reads a photographed 3x3 or 4x4 sliding-tile puzzle (numbers printed on tiles, one empty slot) and
+solves it optimally. The reader and solver are pure TypeScript with no DOM, so the same code runs in
+Node and in the browser; `src/app` is a mobile-first web app around them (Vite, no UI framework).
 
-## Features
-
-- Real-time puzzle detection using computer vision
-- Automatic puzzle state analysis
-- A* algorithm for finding optimal solutions
-- Step-by-step solution visualization
-- Mobile-friendly interface
-- AR mode for overlay instructions
-
-## Project Structure
+## Run
 
 ```
-slide-puzzle-solver/
-├── shared/           # Shared types and utilities
-│   ├── src/
-│   │   ├── types/   # TypeScript type definitions
-│   │   └── utils/   # Shared utility functions
-│   └── package.json
-└── web/             # Web application
-    ├── src/
-    │   ├── components/  # React components
-    │   └── App.tsx      # Main application
-    └── package.json
+bash checks.sh               # npm ci, typecheck, lint, format check, tests, build, Python checks
+                             # (ruff, mypy, pytest; venv in ~/.cache), e2e (if Chromium launches)
+bash scripts/ui-evidence.sh  # the browser e2e alone, failing if Chromium cannot launch
+npm run dev                  # app on http://localhost:5173 (camera needs HTTPS or localhost)
+npm run build                # static site in dist/; `npm run preview` serves it
+npm run e2e                  # builds, serves, and drives the app in Chromium (see below)
+npm run build-pattern-db     # regenerate src/puzzle/pattern-db.bin.gz (~10 s, ~100 MB RAM)
+npm run gen                  # 240 held-out synthetic photos -> data/eval (needs python3; builds a venv in ~/.cache)
+npm run eval                 # real pipeline over data/eval -> prints metrics, writes data/eval-results.json
+npm run eval:seeds           # generates (if missing) and evaluates seeds 20240601, 7, 99 -> per-seed table (~25 min, ~15 if generated)
+npm run real:fetch           # downloads the real photos listed in real-photos.toml -> data/real (sha256-checked)
+npm run real:eval            # writes their labels and evaluates them -> data/real-results.json
+npm run train                # retrain the tile classifier -> src/vision/weights.json (minutes, CPU)
 ```
 
-## Prerequisites
+## How it works
 
-- Node.js (v16 or later)
-- npm (v7 or later)
+- `src/puzzle`: board type, parity solvability, `checkReading` (permutation + confidence + parity;
+  rejects with a specific reason), and optimal solvers. 3x3: IDA* with Manhattan + linear conflict
+  (instant). 4x4: IDA* with an additive 6-6-3 pattern database (`pattern-db.ts`, `pattern-solver.ts`;
+  the 2.4 MB table `pattern-db.bin.gz` is built by `npm run build-pattern-db`, and the second 6-tile
+  group is its mirror image across the diagonal). If the optimal search passes a time budget
+  (20 s) it falls back to weighted IDA* and the result is labelled "not guaranteed shortest".
+  Unsolvable boards return immediately.
+- `src/app`: the web app. Two Web Workers keep the page responsive: `vision.worker.ts` runs
+  `readBoard`; `solve.worker.ts` runs `solve`. Cancelling a solve terminates and restarts only the
+  solver worker. `review.ts` re-runs `checkReading` on manual corrections and says which cells to blame.
+  The page fetches the pattern table once at load and hands it to the solver worker, so reading and
+  solving make no network requests (the e2e test checks this offline). The solver worker is bundled
+  inline, so Cancel restarts it from a blob without a fetch and works offline.
+- `src/vision`, `readBoard(rgbaImage, weights)`:
+  1. `find-board.ts` thresholds brightness and colourfulness at many levels and proposes quads: board
+     silhouettes, and clusters of tile-like blobs (for boards whose frame blends into the table). It
+     looks at four views of the photo: grey and saturation, each also lighting-flattened (a box-blur
+     background subtracted), because a gradient or a hard shadow edge breaks a board up in the plain
+     views. `refine.ts` snaps silhouette sides to the strongest straight edge; the raw and the snapped
+     quad are both read.
+  2. Each candidate is rectified (`grid.ts`) and the tile grid is fitted per axis: a comb of N+1 evenly
+     spaced lines slides over the horizontal and the vertical edge profile separately, so a board that is
+     a few percent off on one side shifts the grid on that axis only. Each candidate is read as 3x3 and
+     as 4x4.
+  3. `classifier.ts` is a 150k-parameter CNN (pure-TS inference) over 16 classes: blank and the
+     whole tile number 1..15. Weights are 1.5 MB JSON, bundled into the vision worker (not made smaller: ~0.5 MB gzipped is fine for a same-origin asset).
+  4. Joint decoding (`decode.ts`): the cells of a board hold each of 0..N²-1 exactly once, with blank
+     as a class like any tile, so instead of taking each cell's best class alone the reader solves an
+     assignment problem (Hungarian algorithm) over the cells' class probabilities and picks the
+     whole-board reading with the highest total log-likelihood. A cell's confidence is how much likelier
+     that board is than the best board that puts a different value in that cell (a logistic of the
+     log-likelihood gap), so it is the weakest link of the permutation, not one softmax output; a tie is 0.5.
+  5. The best reading wins: consistent readings rank before inconsistent ones, then by mean confidence,
+     and the search stops early at a consistent reading with mean confidence 0.9. The winning candidate is
+     then re-read with seven crops per cell (centred, two scales, four shifts; class log-probabilities
+     averaged) for both grid sizes, because a plain read may have picked the wrong size. That is 3x3
+     versus 4x4: whichever of the two re-reads is a consistent permutation, and if both or neither are,
+     the higher mean confidence.
+  6. `checkReading` accepts the result only if every cell's confidence is at least `MIN_CELL_CONFIDENCE`
+     = 0.95, the cells are a permutation, and the permutation is solvable. The threshold was chosen on two
+     development sets (seeds 4242 and 31337), never on the report seeds or on real photos. Solvability is
+     checked after decoding and is never a constraint on it: forcing it would turn a genuinely swapped
+     board into a confident wrong answer. Anything else is rejected with a reason; low-confidence cells
+     are never accepted.
+- No vision library: OpenCV.js is ~8-10 MB, too heavy for a phone page; the pipeline is ~1500 lines of TypeScript.
+- Type-check: `tsconfig.core.json` checks `src/vision` and `src/puzzle` without the DOM lib (part of
+  `npm run typecheck`), so browser APIs cannot creep into the core that Node and the workers share.
+- Training data (`scripts/synth.py`) is rendered tiles in 41 open-licence fonts (`fonts/train`; licence and copyright notices in `fonts/OFL.txt` and `fonts/COPYRIGHTS.md`) with
+  per-board weight, slant, stretch, old-style digit offsets, blur, noise, lighting and JPEG, plus the
+  real-photo styles below.
 
-## Setup
+### Synthetic realism (`synth.py`)
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/slide-puzzle-solver.git
-   cd slide-puzzle-solver
-   ```
+The generator is shared by `gen_photos.py` (eval photos), `train_classifier.py` (training crops) and
+`npm run gen`, seeded and deterministic. Besides flat printed digits it draws, per board unless noted:
 
-2. Install dependencies:
-   ```bash
-   # Install shared package dependencies
-   cd shared
-   npm install
-   npm run build
+- digit styles (`DIGIT_STYLES`, weighted): flat 40%, embossed and debossed (light and dark offset edges),
+  engraved outline, engraved with a thin inner shadow, metallic foil (gradient fill in gold, silver or
+  bronze, a highlight band, a dark rim) and low contrast (digit 18-40 luminance levels from its tile);
+- tile surface: glossy gradient (35% of boards), specular blobs or streaks anywhere on a tile so they can
+  cross a digit (on glossy and metal boards), soft drop shadows between tiles (40%);
+- board base texture: flat, wood grain, brushed metal or plastic mottle (frame and empty slot);
+- per photo: uneven lighting with a hard shadow edge (20%), barrel lens distortion (30%; the labelled
+  corners are moved with it), and a partial thumb at the board's outer edge (12%) that reaches at most
+  0.3 of a tile past the frame, so no tile is ever covered whole.
 
-   # Install web application dependencies
-   cd ../web
-   npm install
-   ```
+The eval split still uses only `fonts/eval`; none of this touches that separation. Generation takes about
+0.9 s per 960x720 photo and a training board about 0.7 s.
+The committed weights were trained on these styles (see "Training provenance").
 
-3. Start the development server:
-   ```bash
-   cd web
-   npm run dev
-   ```
+Training also jitters each crop: gamma, contrast and brightness, an occasional saturating highlight
+(`synth.augment_grey_window`) and a white-balance cast before the grey conversion.
 
-4. Open your browser and navigate to `http://localhost:5173`
+## Measured accuracy
 
-## Usage
+Held-out eval sets are synthetic photos from `npm run gen` (seed 20240601) and `npm run eval:seeds`
+(seeds 20240601, 7 and 99), 240 photos each, half 3x3 and half 4x4, about 8% unsolvable. Eval photos use
+only the four fonts in `fonts/eval` (Comic Neue Bold, Playfair Display old-style digits, Slabo 27px,
+Josefin Sans), which no training code reads. Nothing was tuned on seeds 7 or 99.
 
-1. Allow camera access when prompted
-2. Point your camera at a slide puzzle
-3. The application will automatically detect and analyze the puzzle
-4. Once detected, you'll see the current state and solution steps
-5. Follow the step-by-step instructions to solve the puzzle
+Run on 2026-11-22 at commit e9c420d (`rm -rf data/eval-seed* && npm run eval:seeds`, Node v22.23.3,
+`nproc` 4, seeds evaluated one after another; table pasted as printed):
 
-## Development
+| seed     | images | exact-read | false-accept | unsolvable rejected | detection | frame-tight | grid-size | per-cell | mean ms/image |
+| -------- | ------ | ---------- | ------------ | ------------------- | --------- | ----------- | --------- | -------- | ------------- |
+| 20240601 | 240    | 90.9%      | 0.0%         | 21/21               | 93.8%     | 67.9%       | 99.2%     | 97.4%    | 1096          |
+| 7        | 240    | 93.2%      | 0.0%         | 18/18               | 97.5%     | 76.7%       | 99.6%     | 98.8%    | 1161          |
+| 99       | 240    | 90.0%      | 0.0%         | 20/20               | 93.3%     | 64.2%       | 97.9%     | 96.5%    | 1253          |
 
-- The shared package contains reusable types and utilities
-- The web application is built with React and Vite
-- TailwindCSS is used for styling
-- TypeScript is used throughout the project
+The generator is seeded, yet its photos are not byte-identical across machines (most likely
+floating-point library routines that differ by CPU), so the figures differ slightly between machines. A reviewer's run of the same command on another machine got
+20240601: 90.4% / 0.0% / 21/21 / 98.8% / 97.3% / 2102 ms; 7: 93.7% / 0.0% / 18/18 / 99.6% / 98.2% /
+1547 ms; 99: 90.5% / 0.0% / 20/20 / 97.9% / 96.5% / 1420 ms (exact-read / false-accept / unsolvable
+rejected / grid-size / per-cell / mean ms). Expect exact-read within about a point of the table, and no
+false accepts, on any machine. Disabling numpy's AVX/AVX2/FMA paths (`NPY_DISABLE_CPU_FEATURES`) did not
+change the photos here, so it is not used.
 
-## Contributing
+Exact-read means a solvable board was read exactly and accepted. False-accept means accepted but wrong.
+The remaining misses are almost all rejections (low confidence on one or two cells, which the user can
+confirm with one tap each, or a wrong grid size), not wrong boards: no seed accepted a wrong reading. The
+weights, the 0.95 threshold and every pipeline parameter were fixed before these seeds were run.
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Detection rate: a detection is a found quad whose every corner is within 12% of the board side of
+the labelled outer-frame corner. The generator's frame margin is at most 8% of the edge, so a quad
+hugging the tile grid is at most 11.3% away; the tolerance admits frame quads and tile-cluster quads
+but not a quad that is too big, too small or on the wrong object. "Frame-tight" is the stricter count of
+quads whose every corner is within 5% of the board side, i.e. quads on the outer frame itself.
 
-## License
+### Confirming uncertain cells
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+When the only reason a board is rejected is low confidence, i.e. the best guesses already form a solvable
+permutation, the review screen highlights every unsure cell (dashed outline, guess shown on the board)
+and lists each one as "Check this cell: row r, column c. Best guess: N" with a **Yes, it is N** button and
+a **Change** button (opens the number pad). Tapping Yes keeps the guess and sets that cell's confidence to
+1; the consistency check re-runs, and Solve is enabled once no unsure cell is left. A confirmed or
+corrected cell counts as confidence 1 (`review.ts`: `confirmCell`, `setCell`). Nothing is ever accepted
+without the tap, and if the guesses are not a valid permutation (a duplicate, two blanks, unsolvable) no
+confirm button is offered: the real reason is shown and cells are fixed with the number pad as before.
+The e2e fixture `test/fixtures/photo-lowconf.jpg` is a generated 3x3 photo (`gen_photos.py --split eval
+--count 120 --seed 5151`, image 44) that the committed weights read with every cell right but the weakest at
+confidence 0.53, so it is rejected only for low confidence. Keep that margin well below 0.95: the browser
+decodes JPEGs with its own decoder, which differs from the `jpeg-js` used in Node by up to ~17 levels per
+channel, and an earlier fixture at 0.885 read 0.956 (accepted) in Chromium. `test/app-parity.test.ts` runs
+what the vision worker and the review screen run on the fixture and checks the status, the flagged cells and
+that the weakest cell is at least 0.05 under the threshold. After a retrain or a pipeline change, if it
+fails, print `readBoard` results for generated photos (`gen_photos.py --count 120 --out /tmp/x`), pick a 3x3
+photo whose cells are all correct, rejected only for low confidence, with a weakest cell under about 0.85, and
+replace the fixture and its label (under 200 KB; run prettier on the json).
+
+### Real photos
+
+`real-photos.toml` lists real photographs (openly licensed, from Wikimedia Commons) with hand-written
+labels; `npm run real:fetch` downloads them and `npm run real:eval` evaluates them with `scripts/eval.ts`
+(large photos are downscaled with the app's 1280 px rule, `MAX_PHOTO_SIDE`). The photos are a held-out set:
+nothing was tuned on them. Labels have no corner coordinates, so detection rate is "n/a".
+
+**This set is far too small to measure anything.** Commons holds few photographs of numbered sliding
+puzzles; of about 40 candidates only 4 show a whole board whose every tile I could read with certainty
+(loose tiles, boxes, drawings, screenshots and one giant wooden board where 6 and 9 were ambiguous were
+left out). Flickr/Openverse searches added nothing usable. Photos 1 and 2 carry Commons' plain
+"Attribution" tag, not a named CC licence; drop them if that is not acceptable.
+
+Run on 2026-11-22 (Node 22, `npm run real:eval`):
+
+| photos | solvable | exact-read | false-accept | unsolvable rejected | grid-size | per-cell | mean ms/image |
+| ------ | -------- | ---------- | ------------ | ------------------- | --------- | -------- | ------------- |
+| 4      | 3        | 2/3        | 0/4          | 1/1                 | 4/4       | 100%     | 1286          |
+
+Every board was found and read as 4x4 with all 64 cells right. The colour-column board and the solved
+red-white board were accepted; the keychain (shiny embossed metal digits) was rejected for low confidence on
+one cell (0.82 for the 3, which the user would confirm with one tap); the red-white board with 14 and 15
+swapped was rejected as unsolvable, for the right reason. Four photos show the pipeline is not limited to the
+generator, but they are not a measurement.
+
+To measure real-photo accuracy properly, collect 30+ labelled photos of the target puzzle under
+different lighting, evaluate them with `npx tsx scripts/eval.ts <dir> <dir>/results.json`, and re-check the
+confidence threshold on one half before reporting the other.
+
+## Solver speed (Node 22, one core)
+
+Measured by `test/pattern-solver.test.ts`: Korf's first ten instances (optimal 46-59 moves) take
+2 ms to 1.0 s each; ten seeded uniform random states take 3 ms to 0.9 s (median under 0.1 s). Optimal
+results match published optima. The hardest known states (Korf #88, h = 62) do not finish optimally in
+minutes; after the budget the weighted fallback returns 88 moves in about 50 ms. The
+Manhattan + linear-conflict search (3x3, and 4x4 without the table) takes ~30 s on some 60-move states.
+
+## Browser e2e
+
+`npm run e2e` (Playwright, pinned) builds the app, serves it with `vite preview`, and at 390x844
+uploads committed fixtures (3x3, 4x4, one unsolvable photo, one low-confidence photo), checks the board shown,
+the first move and move count of the solution, the rejection reason and highlighted cells, manual correction,
+confirming or changing each unsure cell, a fake camera capture (a fixture served as the camera's video), a
+denied camera, tapping "Use camera" twice (one stream, every track ended on Close), cancelling a long solve
+offline, and a new upload or a cell correction during a solve (the old solve is dropped and never shown). Waits for a photo to be read use a 30 s timeout (a read takes
+1-3 s, a rejected one 2-3x that), not Playwright's 5 s default.
+Every test fails on console errors; the read/solve tests go offline after load and fail on any request.
+Screenshots land in `e2e-artifacts/` (gitignored). It needs Chromium and its system libraries
+(`npx playwright install --with-deps chromium`, root). `checks.sh` runs it when Chromium launches and
+prints "e2e: NOT RUN" otherwise; `bash scripts/ui-evidence.sh` runs the same suite and fails instead.
+`npx playwright test --list` shows every test; all of them pass in this workspace.
+
+## Limitations
+
+- Real photos are barely tested: 4 photos (see "Real photos"), 2 of 3 solvable boards accepted, 0 wrong
+  boards accepted. The generator imitates embossed, engraved and foil digits, glare, wood grain and thumbs
+  and the weights are trained on it, but real digits can still differ from it; uncertain cells go to the
+  user to confirm.
+- Accuracy figures come from Node, which decodes JPEGs with `jpeg-js`; the browser uses its own decoder,
+  which differs by a few levels per pixel, so a cell near the 0.95 threshold can land on the other side in
+  the app. That only moves a cell between "accepted" and "confirm with one tap".
+- Board must be roughly upright (up to ~20-45 degrees); sideways photos are not tried.
+- The board must contrast with its surroundings, or its tiles with its frame; some clutter touching
+  the board or very low contrast still fail (the read is then rejected, not guessed).
+- Training is seeded but torch results may differ across CPUs/thread counts; committed weights are
+  the reference.
+
+## Training provenance
+
+`src/vision/weights.json` comes from `npm run train` with its defaults: seed 7, 9000 synthetic boards
+from the 41 fonts in `fonts/train`, 14 epochs, no `--extra` crop sets. `npm run train` writes
+`src/vision/weights.meta.json` next to the weights (`--out`'s name with a `.meta.json` suffix): the exact
+command line, seed, boards, epochs, `--extra` sets, validation accuracy, time and library versions. That file
+is the record of the committed weights. Torch results may differ across CPUs and thread counts, so a
+retrain is not guaranteed to reproduce the file byte for byte; the committed file is the reference. No
+eval-split photo or font was used: the training code reads `fonts/train` only.
+
+`--extra` takes `.npz` crop sets (arrays `x`, `y`, `fonts`, `source`) for hard examples.
+`synth.check_training_crops` refuses a set that lacks `fonts` or `source`, names a font from
+`fonts/eval` or any font not in `fonts/train`, has `eval` in its `source`, or lives under `data/eval*`.
+An `.npz` holds only pixels, so this is a declaration check: crops cut from eval photos must not be
+declared as anything else.
+
+## Bringing this back to chrismatteson/slide-puzzle-solver
+
+This directory is a self-contained replacement for that repo's `web/` and `shared/` packages; nothing
+from the old pipeline is needed. Recommended as one PR on a fresh branch there:
+
+1. Delete the MobileSAM path: `shared/src/utils/imageProcessor.ts`, `web/src/utils/onnxInit.ts`,
+   `web/public/js/ort.min.js`, `scripts/download-model.sh`, `scripts/convert_model.py`,
+   `scripts/copy-wasm.sh`, and the `onnxruntime-web`, `@tensorflow/*`, `opencv.js` and `three`
+   dependencies. The old A* solver (`shared/src/utils/puzzleSolver.ts`) is superseded by `src/puzzle/`.
+2. Copy this directory's contents to the repo root (or to `web/`; `checks.sh` runs from its own
+   directory), keeping `package-lock.json`, `fonts/` (training and eval fonts, with their licence
+   note), `src/vision/weights.json` and `src/puzzle/pattern-db.bin.gz`.
+3. Add a CI job that runs `bash checks.sh` and `npx playwright install --with-deps chromium && npm run e2e`
+   (GitHub runners have the browser libraries, so the e2e tests run there).
+4. Before relying on it, add more real photos: photograph puzzles, label them like the synthetic ones
+   (`name.jpg|jpeg|png` + `name.json` with `{"size": N, "state": [...]}`, blank = 0; `corners`, `font` and
+   `solvable` optional) and run `npx tsx scripts/eval.ts <dir> <dir>/results.json` on them, or add entries
+   to `real-photos.toml`.

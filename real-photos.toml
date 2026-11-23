@@ -1,0 +1,54 @@
+# Real photographs of numbered sliding-tile puzzles: a held-out test set for `readBoard`.
+# `npm run real:fetch` downloads them into data/real/ (gitignored) and checks sha256;
+# `npm run real:eval` writes the labels below next to them and runs scripts/eval.ts.
+#
+# One [[photo]] table per photo:
+#   name     file stem under data/real/ (extension comes from `url`: .jpg, .jpeg or .png)
+#   page     source page; url = direct file URL; author; license (as stated on the source page)
+#   sha256   of the downloaded bytes (fetch refuses a file that does not match)
+#   size     3 or 4;  state = row-major tile numbers, 0 = the empty slot, as seen in the photo
+#
+# Only photos whose every tile could be read with certainty are listed. Photos of loose tiles, boxes,
+# drawings, screenshots, or tiles whose digits were ambiguous (e.g. a 6 that might be a 9) are left out.
+# Many real puzzles are in states unreachable from the goal; they stay in the set, the reader should
+# reject them. Wikimedia serves the 1280 px thumbnail, so the downloads are not rate limited.
+
+[[photo]]
+name = "keychain-solved"
+page = "https://commons.wikimedia.org/wiki/File:15-puzzle-01.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1d/15-puzzle-01.jpg/1280px-15-puzzle-01.jpg"
+author = "Micha L. Rieser"
+license = "Attribution (Wikimedia Commons {{Attribution}} tag; the page names no CC licence)"
+sha256 = "8e525484b4ae6fb88fe48acd6c2d61534f725680f76c726d1d8b83fb43f64468"
+size = 4
+state = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
+
+[[photo]]
+name = "red-white-solved"
+page = "https://commons.wikimedia.org/wiki/File:15-puzzle-02.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a4/15-puzzle-02.jpg/1280px-15-puzzle-02.jpg"
+author = "Micha L. Rieser"
+license = "Attribution (Wikimedia Commons {{Attribution}} tag; the page names no CC licence)"
+sha256 = "c825dab08e8e775efe55b10b5711a6269b09bcdee8b8794614429b0f22b00207"
+size = 4
+state = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
+
+[[photo]]
+name = "red-white-14-15-swapped"
+page = "https://commons.wikimedia.org/wiki/File:15-Puzzle.jpg"
+url = "https://upload.wikimedia.org/wikipedia/commons/4/48/15-Puzzle.jpg"
+author = "Micha L. Rieser"
+license = "Public domain"
+sha256 = "b5796a480e1e2147151cfd9be6f6d7bb3cc726f7170d02feee1fe94fd289b0cf"
+size = 4
+state = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 14, 0]
+
+[[photo]]
+name = "blue-colour-columns"
+page = "https://commons.wikimedia.org/wiki/File:15-spill_i_plast_fra_1960-tallet..jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1d/15-spill_i_plast_fra_1960-tallet..jpg/1280px-15-spill_i_plast_fra_1960-tallet..jpg"
+author = "Kolbkorr"
+license = "CC BY-SA 4.0"
+sha256 = "375ae8f1f69c35d3b51aa944a70ef0006b79648516b0471a9bdda337017d645d"
+size = 4
+state = [13, 9, 5, 1, 14, 10, 6, 2, 15, 11, 8, 3, 0, 12, 7, 4]

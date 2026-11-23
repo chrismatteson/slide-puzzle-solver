@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Slide puzzle solver</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <h1>Slide puzzle solver</h1>
+        <p class="lede">
+          Photograph a 3×3 or 4×4 sliding-tile puzzle. The photo is read and solved on this device;
+          nothing is uploaded.
+        </p>
+        <p id="status" class="status" role="status">Loading the reader and solver…</p>
+      </header>
+
+      <section class="capture" aria-labelledby="capture-heading">
+        <h2 id="capture-heading">Photo</h2>
+        <div class="actions">
+          <button type="button" id="use-camera">Use camera</button>
+          <label class="button secondary" id="upload-label">
+            Upload photo
+            <input id="photo-file" class="visually-hidden" type="file" accept="image/*" />
+          </label>
+        </div>
+        <p id="notice" class="notice" role="alert" hidden></p>
+        <div id="camera" hidden>
+          <div class="viewfinder">
+            <video id="preview" playsinline muted></video>
+            <div class="guide" aria-hidden="true"></div>
+          </div>
+          <p class="hint">Fit the whole puzzle inside the square, in good light, with no glare.</p>
+          <div class="actions">
+            <button type="button" id="capture">Capture</button>
+            <button type="button" id="close-camera" class="secondary">Close camera</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="review" aria-labelledby="review-heading" hidden></section>
+      <section id="solution" aria-labelledby="solution-heading" hidden></section>
+    </main>
+    <script type="module" src="/src/app/main.ts"></script>
+  </body>
+</html>

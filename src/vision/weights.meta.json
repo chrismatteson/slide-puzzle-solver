@@ -1,0 +1,15 @@
+{
+  "command": "python scripts/train_classifier.py",
+  "seed": 7,
+  "boards": 9000,
+  "epochs": 14,
+  "extra": [],
+  "weights": "weights.json",
+  "validation_accuracy": 0.9535,
+  "trained_at": "2026-11-22T13:02:35+00:00",
+  "versions": {
+    "python": "3.12.16",
+    "torch": "2.9.1+cpu",
+    "numpy": "2.3.4"
+  }
+}

@@ -1,0 +1,8 @@
+# Python side: `npm run gen` (numpy, pillow), `npm run train` (torch), and the Python checks in checks.sh
+# (pytest, mypy). The app itself never uses Python.
+--extra-index-url https://download.pytorch.org/whl/cpu
+numpy==2.3.4
+pillow==12.0.0
+torch==2.9.1+cpu
+pytest==8.3.5
+mypy==2.4.0

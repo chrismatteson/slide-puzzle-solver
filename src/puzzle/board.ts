@@ -1,5 +1,6 @@
 // Board representation shared by the solver, the consistency check and the vision pipeline.
-// A board is row-major; 0 is the empty slot. Goal: 1..N²-1, then the blank at bottom-right.
+// A board is row-major; 0 is the empty slot. Goal: tiles 1..N²-1 in reading order with the blank at its
+// home cell, by default the bottom-right one (numbered boards) but any cell for picture boards.
 
 export type GridSize = 3 | 4;
 export type Direction = "up" | "down" | "left" | "right";
@@ -14,43 +15,61 @@ export interface Board {
   size: GridSize;
   /** Row-major, length size². 0 is the empty slot. */
   cells: readonly number[];
+  /** Cell index where the blank sits in the goal; default size²-1 (bottom-right). */
+  blankHome?: number;
 }
 
 export const GRID_SIZES: readonly GridSize[] = [3, 4];
 
-export function createGoalBoard(size: GridSize): Board {
-  const cells = Array.from({ length: size * size }, (_, i) => (i + 1) % (size * size));
-  return { size, cells };
+export function getBlankHome(board: Board): number {
+  return board.blankHome ?? board.size * board.size - 1;
+}
+
+/** Cell where `tile` belongs when the blank's home is `home`: tiles fill the other cells in reading order. */
+export function getGoalPosition(tile: number, home: number): number {
+  return tile <= home ? tile - 1 : tile;
+}
+
+export function createGoalBoard(size: GridSize, blankHome = size * size - 1): Board {
+  const count = size * size;
+  if (!Number.isInteger(blankHome) || blankHome < 0 || blankHome >= count) {
+    throw new Error(
+      `blankHome ${String(blankHome)} is not a cell of a ${String(size)}x${String(size)} board`,
+    );
+  }
+  const cells = Array.from({ length: count }, (_, i) =>
+    i === blankHome ? 0 : i < blankHome ? i + 1 : i,
+  );
+  return blankHome === count - 1 ? { size, cells } : { size, cells, blankHome };
 }
 
 export function isGoalBoard(board: Board): boolean {
-  const goal = createGoalBoard(board.size).cells;
+  const goal = createGoalBoard(board.size, getBlankHome(board)).cells;
   return board.cells.every((v, i) => v === goal[i]);
 }
 
-function countInversions(cells: readonly number[]): number {
-  let inversions = 0;
-  for (let i = 0; i < cells.length; i++) {
-    const a = cells[i] ?? 0;
-    if (a === 0) continue;
-    for (let j = i + 1; j < cells.length; j++) {
-      const b = cells[j] ?? 0;
-      if (b !== 0 && a > b) inversions++;
-    }
-  }
-  return inversions;
-}
-
 /**
- * Parity test for a board that is already a valid permutation. Odd width: the inversion count
- * must be even. Even width: each blank row move flips inversion parity, so inversions plus the
- * blank's row (from the top) must have the same parity as the goal's (inversions 0, row N-1).
+ * Parity test for a board that is already a valid permutation. Every move swaps the blank with a
+ * tile (flipping the permutation's parity) and moves the blank one cell (changing its taxicab
+ * distance from home by one), so permutation parity plus that distance keeps its parity; the goal
+ * has both zero. Parity of a permutation is (cells - cycles) mod 2.
  */
 export function isSolvable(board: Board): boolean {
-  const inversions = countInversions(board.cells);
-  if (board.size % 2 === 1) return inversions % 2 === 0;
-  const blankRow = Math.floor(board.cells.indexOf(0) / board.size);
-  return (inversions + blankRow) % 2 === (board.size - 1) % 2;
+  const n = board.size;
+  const home = getBlankHome(board);
+  // Where each cell's content belongs.
+  const target = board.cells.map((tile) => (tile === 0 ? home : getGoalPosition(tile, home)));
+  const visited = new Array<boolean>(target.length).fill(false);
+  let cycles = 0;
+  for (let start = 0; start < target.length; start++) {
+    if (visited[start]) continue;
+    cycles++;
+    for (let at = start; !visited[at]; at = target[at] ?? start) visited[at] = true;
+  }
+  const blank = board.cells.indexOf(0);
+  const distance =
+    Math.abs(Math.floor(blank / n) - Math.floor(home / n)) + Math.abs((blank % n) - (home % n));
+  return (target.length - cycles + distance) % 2 === 0;
 }
 
 const DELTAS: Record<Direction, { dr: number; dc: number }> = {
@@ -76,7 +95,7 @@ export function applyMove(board: Board, move: Move): Board {
   const cells = [...board.cells];
   cells[blank] = move.tile;
   cells[from] = 0;
-  return { size: board.size, cells };
+  return { ...board, cells };
 }
 
 export function applyMoves(board: Board, moves: readonly Move[]): Board {

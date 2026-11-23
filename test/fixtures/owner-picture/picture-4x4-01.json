@@ -1,0 +1,12 @@
+{
+  "size": 4,
+  "blank": 2,
+  "solved": [-1, 4, 3, 7, 1, 9, 5, 11, 8, 0, 10, 6, 12, 13, 14, 15],
+  "tilesQuad": [
+    { "x": 300.4, "y": 557.4 },
+    { "x": 1239.8, "y": 554.4 },
+    { "x": 1278.1, "y": 1520.1 },
+    { "x": 282.2, "y": 1512.0 }
+  ],
+  "notes": "Hand label. blank: photo cell index (row-major) of the empty slot. solved[p]: photo cell index of the tile that belongs at solved position p; -1 marks where the empty slot belongs when solved (top-left). tilesQuad: the corners of the 4x4 tile area (not the frame) in this photo's pixels, clicked by hand."
+}

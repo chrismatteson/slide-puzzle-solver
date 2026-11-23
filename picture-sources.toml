@@ -1,0 +1,169 @@
+# Openly licensed pictures for the synthetic picture-puzzle photos (scripts/gen_picture_photos.py).
+# `npm run pictures:fetch` downloads them into data/pictures/ (gitignored) and checks sha256.
+# All are public-domain works (artist died long ago, or NASA / US government) from Wikimedia Commons;
+# `license` is as stated on the source page. Wikimedia serves the 1280 px thumbnail.
+#
+# split: `dev` pictures are for tuning the assembly; `eval` pictures are held out and must never be
+# used for tuning (the held-out numbers in the README come from them).
+
+[[picture]]
+name = "claude-monet-impression-soleil-levant"
+page = "https://commons.wikimedia.org/wiki/File%3AClaude_Monet%2C_Impression%2C_soleil_levant.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/54/Claude_Monet%2C_Impression%2C_soleil_levant.jpg/1280px-Claude_Monet%2C_Impression%2C_soleil_levant.jpg"
+author = "Claude Monet"
+license = "Public domain"
+sha256 = "9edb3f9c05b2a79088e24b210534985c61e0c1e46801013c9c849d23fa1d6819"
+split = "dev"
+
+[[picture]]
+name = "edvard-munch-1893-the-scream-oil-tempera"
+page = "https://commons.wikimedia.org/wiki/File%3AEdvard_Munch%2C_1893%2C_The_Scream%2C_oil%2C_tempera_and_pastel_on_cardboard%2C_91_x_73_cm%2C_National_Gallery_of_Norway.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c5/Edvard_Munch%2C_1893%2C_The_Scream%2C_oil%2C_tempera_and_pastel_on_cardboard%2C_91_x_73_cm%2C_National_Gallery_of_Norway.jpg/1280px-Edvard_Munch%2C_1893%2C_The_Scream%2C_oil%2C_tempera_and_pastel_on_cardboard%2C_91_x_73_cm%2C_National_Gallery_of_Norway.jpg"
+author = "Edvard Munch"
+license = "Public domain"
+sha256 = "2fcbcc4554496812fe37c4bc9c6da2ee45da98ce9d5c21de271f7ef3b3431a34"
+split = "eval"
+
+[[picture]]
+name = "georges-seurat-a-sunday-on-la-grande-jat"
+page = "https://commons.wikimedia.org/wiki/File%3AGeorges_Seurat_-_A_Sunday_on_La_Grande_Jatte_--_1884_-_Google_Art_Project.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b7/Georges_Seurat_-_A_Sunday_on_La_Grande_Jatte_--_1884_-_Google_Art_Project.jpg/1280px-Georges_Seurat_-_A_Sunday_on_La_Grande_Jatte_--_1884_-_Google_Art_Project.jpg"
+author = "Georges Seurat"
+license = "Public domain"
+sha256 = "0ad69cd7646e78688fdc46af6410b4b091415ddc832a927f793b6963082aeb02"
+split = "eval"
+
+[[picture]]
+name = "pieter-bruegel-the-elder-the-tower-of-ba"
+page = "https://commons.wikimedia.org/wiki/File%3APieter_Bruegel_the_Elder_-_The_Tower_of_Babel_%28Vienna%29_-_Google_Art_Project_-_edited.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fc/Pieter_Bruegel_the_Elder_-_The_Tower_of_Babel_%28Vienna%29_-_Google_Art_Project_-_edited.jpg/1280px-Pieter_Bruegel_the_Elder_-_The_Tower_of_Babel_%28Vienna%29_-_Google_Art_Project_-_edited.jpg"
+author = "Pieter Bruegel the Elder"
+license = "Public domain"
+sha256 = "bf702a51526f068bd981d503666d6db9deed74e9c832d51c9f69a1bcd0d435eb"
+split = "dev"
+
+[[picture]]
+name = "pillars-of-creation-2014-hst-wfc3-uvis-f"
+page = "https://commons.wikimedia.org/wiki/File%3APillars_of_creation_2014_HST_WFC3-UVIS_full-res_denoised.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/68/Pillars_of_creation_2014_HST_WFC3-UVIS_full-res_denoised.jpg/1280px-Pillars_of_creation_2014_HST_WFC3-UVIS_full-res_denoised.jpg"
+author = "NASA, ESA, and the Hubble Heritage Team (STScI/AURA)"
+license = "Public domain"
+sha256 = "0886672c070ece7eaedde188ee970b35571f39164b9b0f18f298e3402dc192e1"
+split = "eval"
+
+[[picture]]
+name = "the-earth-seen-from-apollo-17"
+page = "https://commons.wikimedia.org/wiki/File%3AThe_Earth_seen_from_Apollo_17.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/97/The_Earth_seen_from_Apollo_17.jpg/1280px-The_Earth_seen_from_Apollo_17.jpg"
+author = "NASA/Apollo 17 crew; taken by either Harrison Schmitt or Ron Evans"
+license = "Public domain"
+sha256 = "3f55578a3c58509029c6a1ec88c683199f585ea9ffe974efd4265aec314156fb"
+split = "eval"
+
+[[picture]]
+name = "the-great-wave-off-kanagawa"
+page = "https://commons.wikimedia.org/wiki/File%3AThe_Great_Wave_off_Kanagawa.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0a/The_Great_Wave_off_Kanagawa.jpg/1280px-The_Great_Wave_off_Kanagawa.jpg"
+author = "After Katsushika Hokusai"
+license = "Public domain"
+sha256 = "82a97a09f95ce3f20ed56e2e98cea620583fb11f4b821a08c3e198dacd7fbb14"
+split = "dev"
+
+[[picture]]
+name = "van-gogh-starry-night-google-art-project"
+page = "https://commons.wikimedia.org/wiki/File%3AVan_Gogh_-_Starry_Night_-_Google_Art_Project.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1280px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg"
+author = "Vincent van Gogh"
+license = "Public domain"
+sha256 = "7b23f6dc53837898ccd1dd66c4caff93b7cebb7fbff68a475cd3de3f57ecc805"
+split = "eval"
+
+[[picture]]
+name = "caspar-david-friedrich-wanderer-above-th"
+page = "https://commons.wikimedia.org/wiki/File%3ACaspar_David_Friedrich_-_Wanderer_above_the_sea_of_fog.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b9/Caspar_David_Friedrich_-_Wanderer_above_the_sea_of_fog.jpg/1280px-Caspar_David_Friedrich_-_Wanderer_above_the_sea_of_fog.jpg"
+author = "Caspar David Friedrich"
+license = "Public domain"
+sha256 = "97b0a5a0ea20deaa9a6f7fd310fdc7dfc6b80b43bd243b31aad5a6acce1aaa34"
+split = "eval"
+
+[[picture]]
+name = "johannes-vermeer-het-melkmeisje-google-a"
+page = "https://commons.wikimedia.org/wiki/File%3AJohannes_Vermeer_-_Het_melkmeisje_-_Google_Art_Project.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/20/Johannes_Vermeer_-_Het_melkmeisje_-_Google_Art_Project.jpg/1280px-Johannes_Vermeer_-_Het_melkmeisje_-_Google_Art_Project.jpg"
+author = "Johannes Vermeer"
+license = "Public domain"
+sha256 = "75ff14af65f5c2c030f7a92d8290ffbac89f46f697022d7a7b999dd6ee69cc01"
+split = "dev"
+
+[[picture]]
+name = "lange-migrantmother02"
+page = "https://commons.wikimedia.org/wiki/File%3ALange-MigrantMother02.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/54/Lange-MigrantMother02.jpg/1280px-Lange-MigrantMother02.jpg"
+author = "Dorothea Lange"
+license = "Public domain"
+sha256 = "81e9aebdfecc1e8e541f0df36b366aef5678dc2a7fa2b3999257cea1bd4d4a21"
+split = "eval"
+
+[[picture]]
+name = "red-fuji-southern-wind-clear-morning"
+page = "https://commons.wikimedia.org/wiki/File%3ARed_Fuji_southern_wind_clear_morning.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/57/Red_Fuji_southern_wind_clear_morning.jpg/1280px-Red_Fuji_southern_wind_clear_morning.jpg"
+author = "Katsushika Hokusai"
+license = "Public domain"
+sha256 = "5df4e100c1290649602fae9d2bbef7f56f72395c0369579c998d03d2cd6705ff"
+split = "eval"
+
+[[picture]]
+name = "sandro-botticelli-la-nascita-di-venere-g"
+page = "https://commons.wikimedia.org/wiki/File%3ASandro_Botticelli_-_La_nascita_di_Venere_-_Google_Art_Project_-_edited.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0b/Sandro_Botticelli_-_La_nascita_di_Venere_-_Google_Art_Project_-_edited.jpg/1280px-Sandro_Botticelli_-_La_nascita_di_Venere_-_Google_Art_Project_-_edited.jpg"
+author = "Sandro Botticelli"
+license = "Public domain"
+sha256 = "efec796914b5a9dd182b7ae32870bc2ae10073dfd4bc02a6cb401b8292056083"
+split = "dev"
+
+[[picture]]
+name = "the-night-watch-hd"
+page = "https://commons.wikimedia.org/wiki/File%3AThe_Night_Watch_-_HD.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5a/The_Night_Watch_-_HD.jpg/1280px-The_Night_Watch_-_HD.jpg"
+author = "Rembrandt"
+license = "Public domain"
+sha256 = "fca01de16f0870941ad639b29f0f12d9e596c0645f61e8680fdb492198bd9e3c"
+split = "eval"
+
+[[picture]]
+name = "vincent-van-gogh-sunflowers-vgm-f458"
+page = "https://commons.wikimedia.org/wiki/File%3AVincent_van_Gogh_-_Sunflowers_-_VGM_F458.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9d/Vincent_van_Gogh_-_Sunflowers_-_VGM_F458.jpg/1280px-Vincent_van_Gogh_-_Sunflowers_-_VGM_F458.jpg"
+author = "Vincent van Gogh"
+license = "Public domain"
+sha256 = "0ed650d381ddcb027dd849d4677be4855ed7063158e5146cdad9d287d88e1b25"
+split = "eval"
+
+[[picture]]
+name = "albert-bierstadt-among-the-sierra-nevada"
+page = "https://commons.wikimedia.org/wiki/File%3AAlbert_Bierstadt_-_Among_the_Sierra_Nevada%2C_California_-_Google_Art_Project.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5c/Albert_Bierstadt_-_Among_the_Sierra_Nevada%2C_California_-_Google_Art_Project.jpg/1280px-Albert_Bierstadt_-_Among_the_Sierra_Nevada%2C_California_-_Google_Art_Project.jpg"
+author = "Albert Bierstadt"
+license = "Public domain"
+sha256 = "eb07abfa3d7c71c722a9994ebf306222a2ff4a305118d575c3c0877a08084926"
+split = "dev"
+
+[[picture]]
+name = "claude-monet-water-lilies-1906-ryerson"
+page = "https://commons.wikimedia.org/wiki/File%3AClaude_Monet_-_Water_Lilies_-_1906%2C_Ryerson.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/aa/Claude_Monet_-_Water_Lilies_-_1906%2C_Ryerson.jpg/1280px-Claude_Monet_-_Water_Lilies_-_1906%2C_Ryerson.jpg"
+author = "Claude Monet"
+license = "Public domain"
+sha256 = "466944d016b5ddb7c9573edb766d38ec14f97884eff8d151a29506d87a3ba4b7"
+split = "eval"
+
+[[picture]]
+name = "gustave-caillebotte-paris-street-rainy-d"
+page = "https://commons.wikimedia.org/wiki/File%3AGustave_Caillebotte_-_Paris_Street%3B_Rainy_Day_-_Google_Art_Project.jpg"
+url = "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/17/Gustave_Caillebotte_-_Paris_Street%3B_Rainy_Day_-_Google_Art_Project.jpg/1280px-Gustave_Caillebotte_-_Paris_Street%3B_Rainy_Day_-_Google_Art_Project.jpg"
+author = "Gustave Caillebotte"
+license = "Public domain"
+sha256 = "99721da043dc3b965765b17327627653e1e226480f8d69c6034efe1074fcd04a"
+split = "eval"

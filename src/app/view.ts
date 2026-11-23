@@ -1,4 +1,5 @@
 import { type Board, type Direction, type GridSize, type Move } from "../puzzle/board.ts";
+import { type TileCrop } from "../picture/types.ts";
 import { type Quad } from "../vision/geometry.ts";
 import { describeMove } from "./review.ts";
 
@@ -39,25 +40,46 @@ export interface GridOptions {
   onCell?: (index: number) => void;
   selected?: number | undefined;
   idPrefix: string;
+  /** Picture puzzles: the crop to draw under each tile number; the number stays on top of it. */
+  crops?: ReadonlyMap<number, TileCrop>;
+  /** Spoken name of the grid, and what a tap does; both default to the numbered review's wording. */
+  title?: string;
+  action?: string;
+}
+
+/** A canvas showing `crop`; the page scales it with CSS. */
+function createTileCanvas(crop: TileCrop): HTMLCanvasElement {
+  const canvas = buildElement("canvas", { class: "tile-image", "aria-hidden": "true" });
+  canvas.width = crop.side;
+  canvas.height = crop.side;
+  const rgba = new Uint8ClampedArray(crop.side * crop.side * 4);
+  for (let i = 0; i < crop.side * crop.side; i++) {
+    rgba.set(crop.rgb.subarray(i * 3, i * 3 + 3), i * 4);
+    rgba[i * 4 + 3] = 255;
+  }
+  canvas.getContext("2d")?.putImageData(new ImageData(rgba, crop.side, crop.side), 0, 0);
+  return canvas;
 }
 
 export function createGrid(options: GridOptions): HTMLElement {
-  const { size, values, flagged, moving, onCell, selected, idPrefix } = options;
+  const { size, values, flagged, moving, onCell, selected, idPrefix, crops } = options;
   const grid = buildElement("div", {
     class: "grid",
     style: `--size: ${String(size)}`,
     role: "group",
-    "aria-label": `${String(size)} by ${String(size)} board`,
+    "aria-label": options.title ?? `${String(size)} by ${String(size)} board`,
   });
   values.forEach((value, index) => {
     const row = Math.floor(index / size) + 1;
     const col = (index % size) + 1;
+    const crop = crops?.get(value);
     const isFlagged = flagged?.has(index) === true;
     const isMoving = moving?.index === index;
     const name = value === 0 ? "empty" : `tile ${String(value)}`;
     const classes = [
       "cell",
       value === 0 ? "blank" : "",
+      crop ? "picture" : "",
       isFlagged ? "flagged" : "",
       isMoving ? "moving" : "",
       selected === index ? "selected" : "",
@@ -66,6 +88,9 @@ export function createGrid(options: GridOptions): HTMLElement {
       .join(" ");
     const label = `Row ${String(row)}, column ${String(col)}: ${name}${isFlagged ? ", needs checking" : ""}`;
     const text = value === 0 ? "" : String(value);
+    const content: Child[] = crop
+      ? [createTileCanvas(crop), buildElement("span", { class: "tile-number" }, text)]
+      : [text];
     const arrow = isMoving
       ? buildElement("span", { class: "arrow", "aria-hidden": "true" }, ARROWS[moving.direction])
       : false;
@@ -77,14 +102,19 @@ export function createGrid(options: GridOptions): HTMLElement {
               type: "button",
               id: `${idPrefix}-${String(index)}`,
               class: classes,
-              "aria-label": `${label}. Tap to change.`,
+              "aria-label": `${label}. ${options.action ?? "Tap to change."}`,
               onClick: () => {
                 onCell(index);
               },
             },
-            text,
+            ...content,
           )
-        : buildElement("div", { class: classes, role: "img", "aria-label": label }, text, arrow),
+        : buildElement(
+            "div",
+            { class: classes, role: "img", "aria-label": label },
+            ...content,
+            arrow,
+          ),
     );
   });
   return grid;
@@ -231,10 +261,11 @@ export interface SolutionViewOptions {
   notGuaranteedShortest: boolean;
   millis: number;
   onStep: (step: number) => void;
+  crops?: ReadonlyMap<number, TileCrop>;
 }
 
 export function createSolutionView(options: SolutionViewOptions): HTMLElement {
-  const { boards, moves, step, notGuaranteedShortest, millis, onStep } = options;
+  const { boards, moves, step, notGuaranteedShortest, millis, onStep, crops } = options;
   const board = boards[step];
   if (!board) throw new Error(`no board for step ${String(step)}`);
   const total = moves.length;
@@ -267,6 +298,7 @@ export function createSolutionView(options: SolutionViewOptions): HTMLElement {
       size: board.size,
       values: board.cells,
       ...(moving ? { moving } : {}),
+      ...(crops ? { crops } : {}),
       idPrefix: "solution-cell",
     }),
     buildElement(

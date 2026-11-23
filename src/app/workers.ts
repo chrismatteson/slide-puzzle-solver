@@ -3,7 +3,8 @@ import { type Board } from "../puzzle/board.ts";
 // a cancel must work offline, and a failed fetch left a dead worker that never answered.
 import SolveWorker from "./solve.worker.ts?worker&inline";
 import { type RgbaImage } from "../vision/image.ts";
-import { type ReadResult } from "../vision/read-board.ts";
+import { type PuzzleProfile } from "../picture/profile.ts";
+import { type PhotoReading, type ReadMode } from "./routing.ts";
 import {
   type SolveOutcome,
   type SolveRequest,
@@ -32,7 +33,7 @@ function takePending<T>(pending: Map<number, Pending<T>>, id: number): Pending<T
 export interface VisionClient {
   /** Resolves once the worker has loaded the classifier. */
   ready: Promise<void>;
-  read(image: RgbaImage): Promise<ReadResult>;
+  read(image: RgbaImage, mode: ReadMode, profiles: PuzzleProfile[]): Promise<PhotoReading>;
 }
 
 export interface SolverClient {
@@ -45,7 +46,7 @@ export interface SolverClient {
 
 export function createVisionClient(): VisionClient {
   const worker = new Worker(new URL("./vision.worker.ts", import.meta.url), { type: "module" });
-  const pending = new Map<number, Pending<ReadResult>>();
+  const pending = new Map<number, Pending<PhotoReading>>();
   let nextId = 0;
   const ready = new Promise<void>((resolve, reject) => {
     worker.addEventListener("message", (event: MessageEvent<VisionResponse>) => {
@@ -63,13 +64,14 @@ export function createVisionClient(): VisionClient {
   });
   return {
     ready,
-    read(image) {
+    read(image, mode, profiles) {
       const id = nextId++;
-      return new Promise<ReadResult>((resolve, reject) => {
+      return new Promise<PhotoReading>((resolve, reject) => {
         pending.set(id, { resolve, reject });
-        const request: VisionRequest = { type: "read", id, image };
-        // The pixel buffer is not needed here afterwards, so hand it over instead of copying it.
-        worker.postMessage(request, [image.data.buffer]);
+        const request: VisionRequest = { type: "read", id, image, mode, profiles };
+        // Copied, not transferred: the page reads the same photo again if the user switches between
+        // numbered and picture reading.
+        worker.postMessage(request);
       });
     },
   };

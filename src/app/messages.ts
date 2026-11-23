@@ -1,14 +1,22 @@
 import { type Board, type Move } from "../puzzle/board.ts";
-import { type ReadResult } from "../vision/read-board.ts";
+import { type PuzzleProfile } from "../picture/profile.ts";
 import { type RgbaImage } from "../vision/image.ts";
+import { type PhotoReading, type ReadMode } from "./routing.ts";
 
 // Messages between the page and its two workers. Vision and solving have separate workers so that
 // cancelling a long solve (terminating its worker) leaves the loaded classifier alone.
 
-export type VisionRequest = { type: "read"; id: number; image: RgbaImage };
+export type VisionRequest = {
+  type: "read";
+  id: number;
+  image: RgbaImage;
+  mode: ReadMode;
+  /** Saved picture puzzles to match a picture photo against first. */
+  profiles: PuzzleProfile[];
+};
 export type VisionResponse =
   | { type: "ready" }
-  | { type: "read"; id: number; result: ReadResult }
+  | { type: "read"; id: number; result: PhotoReading }
   | { type: "error"; id: number; message: string };
 
 export type SolveRequest =

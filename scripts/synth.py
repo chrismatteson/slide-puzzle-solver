@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -516,11 +517,16 @@ def generate_random_background(
     return img
 
 
-def generate_random_quad(rng: np.random.Generator, width: int, height: int) -> np.ndarray:
-    """Board corners (TL, TR, BR, BL) in the photo: scale 30-90% of the short side, rotation, perspective."""
+def generate_random_quad(
+    rng: np.random.Generator,
+    width: int,
+    height: int,
+    scale: tuple[float, float] = (0.30, 0.88),
+) -> np.ndarray:
+    """Board corners (TL, TR, BR, BL) in the photo: `scale` of the short side, rotation, perspective."""
     short = min(width, height)
     for _ in range(1000):
-        side = float(rng.uniform(0.30, 0.88)) * short
+        side = float(rng.uniform(*scale)) * short
         theta = math.radians(float(rng.uniform(-20, 20)))
         cx = float(rng.uniform(0.3, 0.7)) * width
         cy = float(rng.uniform(0.3, 0.7)) * height
@@ -715,8 +721,29 @@ def render_photo(
     """Render one labelled photo of a board."""
     style = generate_random_style(rng, size, fonts)
     flat, _ = render_flat_board(rng, style, state)
-    background = generate_random_background(rng, width, height, style.base)
-    quad = generate_random_quad(rng, width, height)
+    photo, quad, _ = photograph_flat_board(rng, flat, style.margin, size, style.base, width, height)
+    return photo, quad, style.font_path.stem
+
+
+def photograph_flat_board(
+    rng: np.random.Generator,
+    flat: Image.Image,
+    margin: float,
+    size: int,
+    avoid: tuple[int, int, int],
+    width: int,
+    height: int,
+    scale: tuple[float, float] = (0.30, 0.88),
+) -> tuple[Image.Image, np.ndarray, Callable[[np.ndarray], np.ndarray]]:
+    """Put a flat board render (frame included) on a table and photograph it.
+
+    `margin` is the frame's share of the board edge, `avoid` a colour the table should contrast with,
+    `scale` the board's side as a share of the photo's short side (min, max).
+    Returns the photo, the board's outer corners (TL, TR, BR, BL) in it, and a function mapping
+    flat-board pixel points to photo pixels (perspective and lens distortion included).
+    """
+    background = generate_random_background(rng, width, height, avoid)
+    quad = generate_random_quad(rng, width, height, scale)
     src = np.array([[0, 0], [FLAT_SIZE, 0], [FLAT_SIZE, FLAT_SIZE], [0, FLAT_SIZE]], float)
     coeffs = compute_homography_coefficients(src, quad)
     warped = flat.transform(
@@ -725,29 +752,34 @@ def render_photo(
     mask = Image.new("L", (FLAT_SIZE, FLAT_SIZE), 255).transform(
         (width, height), Image.Transform.PERSPECTIVE, tuple(coeffs), Image.Resampling.BILINEAR
     )
-    finger = None
-    if rng.random() < FINGER_PROBABILITY:
-        # Flat-board pixels -> photo pixels is the inverse map of the one used to warp.
-        forward = compute_homography_coefficients(quad, src)
-        pitch = FLAT_SIZE * (1 - 2 * style.margin) / size
-        polygon = make_finger_polygon(rng, style.margin * FLAT_SIZE, pitch, FLAT_SIZE)
-        denom = forward[6] * polygon[:, 0] + forward[7] * polygon[:, 1] + 1
-        finger = np.stack(
+    # Flat-board pixels -> photo pixels is the inverse map of the one used to warp.
+    forward = compute_homography_coefficients(quad, src)
+
+    def map_flat_points(points: np.ndarray) -> np.ndarray:
+        denom = forward[6] * points[:, 0] + forward[7] * points[:, 1] + 1
+        return np.stack(
             [
-                (forward[0] * polygon[:, 0] + forward[1] * polygon[:, 1] + forward[2]) / denom,
-                (forward[3] * polygon[:, 0] + forward[4] * polygon[:, 1] + forward[5]) / denom,
+                (forward[0] * points[:, 0] + forward[1] * points[:, 1] + forward[2]) / denom,
+                (forward[3] * points[:, 0] + forward[4] * points[:, 1] + forward[5]) / denom,
             ],
             axis=1,
         )
+
+    finger = None
+    if rng.random() < FINGER_PROBABILITY:
+        pitch = FLAT_SIZE * (1 - 2 * margin) / size
+        polygon = make_finger_polygon(rng, margin * FLAT_SIZE, pitch, FLAT_SIZE)
+        finger = map_flat_points(polygon)
+    barrel = 0.0
     if rng.random() < BARREL_PROBABILITY:
         # Distort the board and its mask (the table behind it is clutter anyway)
         # and move the labelled corners with them.
-        k = float(rng.uniform(0.02, 0.10))
-        warped = draw_barrel_distortion(warped.convert("RGB"), k)
-        mask = draw_barrel_distortion(mask, k)
-        quad = apply_barrel_to_points(quad, k, width, height)
+        barrel = float(rng.uniform(0.02, 0.10))
+        warped = draw_barrel_distortion(warped.convert("RGB"), barrel)
+        mask = draw_barrel_distortion(mask, barrel)
+        quad = apply_barrel_to_points(quad, barrel, width, height)
         if finger is not None:
-            finger = apply_barrel_to_points(finger, k, width, height)
+            finger = apply_barrel_to_points(finger, barrel, width, height)
     shadow = mask.filter(ImageFilter.GaussianBlur(float(rng.uniform(4, 12))))
     shadow = shadow.transform(shadow.size, Image.Transform.AFFINE, (1, 0, -6, 0, 1, -8)).point(
         lambda v: int(v * 0.45)
@@ -756,7 +788,12 @@ def render_photo(
     background.paste(warped, (0, 0), mask)
     if finger is not None:
         background = draw_finger(rng, background, finger)
-    return degrade(rng, background), quad, style.font_path.stem
+
+    def map_to_photo(points: np.ndarray) -> np.ndarray:
+        mapped = map_flat_points(points)
+        return apply_barrel_to_points(mapped, barrel, width, height) if barrel else mapped
+
+    return degrade(rng, background), quad, map_to_photo
 
 
 def render_training_board(

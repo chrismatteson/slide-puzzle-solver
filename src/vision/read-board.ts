@@ -107,7 +107,18 @@ function takeBest(candidates: BoardCandidate[], kind: BoardCandidate["kind"]): B
   return candidates.filter((c) => c.kind === kind).slice(0, MAX_CANDIDATES_PER_KIND);
 }
 
-export function readBoard(image: RgbaImage, weights: ClassifierWeights): ReadResult {
+/** Board candidates of a photo, with what is needed to refine them and map them to full-size pixels. */
+export interface DetectedCandidates {
+  grey: GreyImage;
+  /** The detection-size views the candidates were found in (plain and saturation, no flattened ones). */
+  views: GreyImage[];
+  candidates: BoardCandidate[];
+  /** Converts a quad in detection pixels to full-image pixels. */
+  scaleToFullSize: (quad: Quad) => Quad;
+}
+
+/** Shared by the numbered and the picture reader: finds candidate board quads, best first per kind. */
+export function detectCandidates(image: RgbaImage): DetectedCandidates {
   const grey = convertToGrey(image);
   const small = shrinkGrey(grey, DETECTION_SIDE);
   const saturation = shrinkGrey(convertToSaturation(image), DETECTION_SIDE);
@@ -118,13 +129,18 @@ export function readBoard(image: RgbaImage, weights: ClassifierWeights): ReadRes
     ...views.map((view) => flattenGrey(view, FLATTEN_RADIUS)),
   ]);
   const candidates = [...takeBest(found, "silhouette"), ...takeBest(found, "tiles")];
+  // map() keeps the length (four points) but widens the tuple to Point[], hence the cast.
+  const scaleToFullSize = (quad: Quad): Quad =>
+    quad.map((p): Point => ({ x: p.x / small.scale, y: p.y / small.scale })) as unknown as Quad;
+  return { grey, views, candidates, scaleToFullSize };
+}
+
+export function readBoard(image: RgbaImage, weights: ClassifierWeights): ReadResult {
+  const { grey, views, candidates, scaleToFullSize } = detectCandidates(image);
   if (candidates.length === 0) {
     return { status: "no-board", message: "No board-like shape was found in the photo." };
   }
 
-  // map() keeps the length (four points) but widens the tuple to Point[], hence the cast.
-  const scaleToFullSize = (quad: Quad): Quad =>
-    quad.map((p): Point => ({ x: p.x / small.scale, y: p.y / small.scale })) as unknown as Quad;
   let best: Reading | undefined;
   for (const candidate of candidates) {
     // The raw hull and its edge-snapped refinement are both read; the reading decides which is right.

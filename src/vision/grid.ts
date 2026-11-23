@@ -8,7 +8,7 @@ import {
   applyHomography,
   computeHomography,
 } from "./geometry.ts";
-import { type GreyImage, sampleBilinear } from "./image.ts";
+import { type GreyImage, type RgbaImage, checkRgbaSize, sampleBilinear } from "./image.ts";
 
 export const RECTIFIED_SIZE = 320;
 
@@ -30,6 +30,56 @@ export function rectifyQuad(grey: GreyImage, quad: Quad): GreyImage {
     }
   }
   return { width: edge, height: edge, data };
+}
+
+/** Colour image, RGB row-major, 3 bytes per pixel. */
+export interface RgbImage {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+}
+
+/**
+ * Colour counterpart of `rectifyQuad`: warps the quad (corners in `image` pixels, top-left first) to a
+ * width x height RGB image with bilinear sampling. Alpha is ignored.
+ */
+export function rectifyQuadRgb(
+  image: RgbaImage,
+  quad: Quad,
+  width: number,
+  height: number,
+): RgbImage {
+  checkRgbaSize(image);
+  const target: Quad = [
+    { x: 0, y: 0 },
+    { x: width, y: 0 },
+    { x: width, y: height },
+    { x: 0, y: height },
+  ];
+  const h: Homography = computeHomography(target, quad);
+  const data = new Uint8ClampedArray(width * height * 3);
+  const maxX = image.width - 1;
+  const maxY = image.height - 1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const source: Point = applyHomography(h, { x: x + 0.5, y: y + 0.5 });
+      const sx = Math.min(maxX, Math.max(0, source.x - 0.5));
+      const sy = Math.min(maxY, Math.max(0, source.y - 0.5));
+      const x0 = Math.min(maxX - 1, Math.floor(sx));
+      const y0 = Math.min(maxY - 1, Math.floor(sy));
+      const fx = sx - x0;
+      const fy = sy - y0;
+      const i = (y0 * image.width + x0) * 4;
+      const below = image.width * 4;
+      for (let c = 0; c < 3; c++) {
+        const top = (image.data[i + c] ?? 0) * (1 - fx) + (image.data[i + 4 + c] ?? 0) * fx;
+        const bottom =
+          (image.data[i + below + c] ?? 0) * (1 - fx) + (image.data[i + below + 4 + c] ?? 0) * fx;
+        data[(y * width + x) * 3 + c] = top * (1 - fy) + bottom * fy;
+      }
+    }
+  }
+  return { width, height, data };
 }
 
 /** Plausible frame width, as a fraction of the board edge, for a quad hugging the board's outline... */
@@ -86,9 +136,9 @@ function fitAxis(
   profile: Float32Array,
   size: GridSize,
   range: { min: number; max: number },
-): { start: number; pitch: number } {
+): { start: number; pitch: number; score: number } {
   const edge = profile.length;
-  let best = { start: edge * range.min, pitch: (edge * (1 - 2 * range.min)) / size };
+  let best = { start: edge * range.min, pitch: (edge * (1 - 2 * range.min)) / size, score: 0 };
   let bestScore = -1;
   for (let first = range.min; first <= range.max + 1e-9; first += INSET_STEP) {
     for (let last = range.min; last <= range.max + 1e-9; last += INSET_STEP) {
@@ -98,7 +148,7 @@ function fitAxis(
       for (let k = 0; k <= size; k++) score += findPeakNear(profile, start + k * pitch);
       if (score > bestScore) {
         bestScore = score;
-        best = { start, pitch };
+        best = { start, pitch, score };
       }
     }
   }
@@ -117,10 +167,31 @@ export function findGrid(
   size: GridSize,
   range: { min: number; max: number },
 ): GridLayout {
+  return findGridWithStrength(rect, size, range).layout;
+}
+
+/**
+ * `findGrid` plus how well the comb fits: the mean edge energy on a grid line divided by the mean
+ * over the whole profile (about 1 for no grid, well above for real tile borders). It is comparable
+ * across grid sizes and candidates, which the picture reader needs because it has no digit classifier
+ * to tell a right reading from a wrong one.
+ */
+export function findGridWithStrength(
+  rect: GreyImage,
+  size: GridSize,
+  range: { min: number; max: number },
+): { layout: GridLayout; strength: number } {
   const { columns, rows } = computeEdgeProfiles(rect);
   const x = fitAxis(columns, size, range);
   const y = fitAxis(rows, size, range);
-  return { x0: x.start, y0: y.start, pitchX: x.pitch, pitchY: y.pitch };
+  const meanOf = (profile: Float32Array): number =>
+    profile.reduce((sum, v) => sum + v, 0) / profile.length || 1;
+  const relative = (axis: { score: number }, profile: Float32Array): number =>
+    axis.score / (size + 1) / meanOf(profile);
+  return {
+    layout: { x0: x.start, y0: y.start, pitchX: x.pitch, pitchY: y.pitch },
+    strength: (relative(x, columns) + relative(y, rows)) / 2,
+  };
 }
 
 export interface CropVariant {

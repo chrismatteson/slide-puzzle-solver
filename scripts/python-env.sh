@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: python-env.sh <script.py> [args...]. Creates the venv on first use, then runs the script in it.
-# The venv (torch, ~1 GB) lives outside the project so it is not copied with the workspace;
+# The venv (torch, ~1 GB) lives outside the project so it is never part of the repo or the build;
 # override its location with SPS_VENV.
 set -euo pipefail
 cd "$(dirname "$0")/.."

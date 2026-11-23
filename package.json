@@ -20,6 +20,9 @@
     "eval:seeds": "tsx scripts/eval-seeds.ts",
     "real:fetch": "tsx scripts/real-photos.ts fetch",
     "real:eval": "tsx scripts/real-photos.ts labels && tsx scripts/eval.ts data/real data/real-results.json",
+    "pictures:fetch": "tsx scripts/picture-sources.ts fetch",
+    "gen:picture": "bash scripts/python-env.sh scripts/gen_picture_photos.py --split eval --count 144 --seed 20261122 --out data/picture-eval",
+    "eval:picture": "tsx scripts/eval-picture.ts data/picture-eval data/picture-eval-results.json",
     "train": "bash scripts/python-env.sh scripts/train_classifier.py",
     "e2e": "playwright test",
     "build-pattern-db": "tsx scripts/build-pattern-db.ts"

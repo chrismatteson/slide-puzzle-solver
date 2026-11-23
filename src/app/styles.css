@@ -348,3 +348,53 @@ button:focus-visible,
     font-size: 2.25rem;
   }
 }
+
+/* Picture puzzles: each tile is a crop of the photo with its number in a corner. */
+h3 {
+  margin: 16px 0 8px;
+  font-size: 1.05rem;
+}
+
+.cell.picture {
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.tile-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.tile-number {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  min-width: 1.5em;
+  padding: 0 4px;
+  border-top-right-radius: 4px;
+  background: rgb(0 0 0 / 70%);
+  color: #fff;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.cell.picture.moving {
+  outline: 4px solid var(--accent);
+  outline-offset: -4px;
+}
+
+.cell.picture .arrow {
+  top: 0;
+  right: 0;
+  padding: 0 6px;
+  border-bottom-left-radius: 4px;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+#recognised button {
+  min-height: 40px;
+  margin-left: 8px;
+}

@@ -3,10 +3,21 @@ import patternDbUrl from "../puzzle/pattern-db.bin.gz?url";
 import { type Board, type GridSize, type Move, applyMove } from "../puzzle/board.ts";
 import { type CellReading } from "../puzzle/consistency.ts";
 import { DEFAULT_BUDGET_MS } from "../puzzle/solver.ts";
+import { checkArrangement, toBoard } from "../picture/arrangement.ts";
+import { createProfile, findBestProfileMatch } from "../picture/profile.ts";
+import { type Arrangement, type PictureReading, type TileCrop } from "../picture/types.ts";
 import { type Quad } from "../vision/geometry.ts";
 import { describeCameraError, startCamera, stopCamera } from "./camera.ts";
 import { type Photo, captureVideoFrame, loadPhotoFile } from "./photo.ts";
+import {
+  listDoubtfulPositions,
+  mapTileCrops,
+  swapPositions,
+  tileNumberAt,
+} from "./picture-review.ts";
+import { forgetProfiles, loadProfiles, openBrowserStore, saveProfile } from "./profiles.ts";
 import { checkBoard, confirmCell, setCell } from "./review.ts";
+import { type ReadMode } from "./routing.ts";
 import {
   createGrid,
   createConfirmList,
@@ -17,8 +28,22 @@ import {
 } from "./view.ts";
 import { CancelledError, createSolverClient, createVisionClient } from "./workers.ts";
 
+/** A picture puzzle being reviewed: the reading, and the arrangement the user is correcting. */
+interface PictureState {
+  reading: PictureReading;
+  /** As proposed or corrected by hand; what checkArrangement makes of it is worked out on each render. */
+  arrangement: Arrangement;
+  /** The arrangement came from a saved puzzle, not from assembling the tiles. */
+  recognised: boolean;
+  /** Solved position tapped first of a swap. */
+  selected?: number | undefined;
+  /** Whether the puzzle was remembered after the last solve. */
+  saved?: "saved" | "failed";
+}
+
 interface ReviewState {
   photo: Photo;
+  picture?: PictureState;
   quad?: Quad;
   /** Absent when no board was found in the photo. */
   size?: GridSize;
@@ -35,6 +60,8 @@ interface SolutionState {
   notGuaranteedShortest: boolean;
   millis: number;
   step: number;
+  /** Picture puzzles: the tile images to draw on the board. */
+  crops?: ReadonlyMap<number, TileCrop>;
 }
 
 function getElement(id: string): HTMLElement {
@@ -62,6 +89,9 @@ const patternDb = fetch(patternDbUrl).then(async (response) => {
     throw new Error(`could not load the 4x4 solver tables (${String(response.status)})`);
   return response.arrayBuffer();
 });
+const profileStore = openBrowserStore();
+let savedCount = loadProfiles(profileStore).length;
+const savedSection = getElement("saved");
 const vision = createVisionClient();
 const solver = createSolverClient(patternDb);
 
@@ -98,6 +128,7 @@ function render(): void {
   focusId = undefined;
   renderReview();
   renderSolution();
+  renderSaved();
   if (activeId) document.getElementById(activeId)?.focus();
 }
 
@@ -113,13 +144,23 @@ function renderReview(): void {
   }
   if (!review) return;
   const state = review;
-  reviewSection.append(buildElement("h2", { id: "review-heading" }, "Detected board"));
+  reviewSection.append(
+    buildElement(
+      "h2",
+      { id: "review-heading" },
+      state.picture ? "Detected picture puzzle" : "Detected board",
+    ),
+  );
   const figure = createPhotoFigure(
     state.photo.url,
     state.photo.image.width,
     state.photo.image.height,
     state.quad,
   );
+  if (state.picture) {
+    renderPictureReview(state, state.picture, figure);
+    return;
+  }
   if (!state.cells || !state.size) {
     reviewSection.append(
       figure,
@@ -128,6 +169,7 @@ function renderReview(): void {
         { class: "notice", role: "alert" },
         `${state.problem ?? "No board found."} Retake the photo, or upload another.`,
       ),
+      createModeSwitch("picture"),
     );
     return;
   }
@@ -211,10 +253,212 @@ function renderReview(): void {
         ),
   );
   panel.append(createSolveControls(size, check.accepted ? check.board : undefined));
+  panel.append(createModeSwitch("picture"));
   reviewSection.append(buildElement("div", { class: "review-body" }, figure, panel));
 }
 
-function createSolveControls(size: GridSize, board: Board | undefined): HTMLElement {
+/** Re-reads the same photo as the other kind of puzzle: the fix for a photo routed the wrong way. */
+function createModeSwitch(to: "picture" | "numbers"): HTMLElement {
+  return buildElement(
+    "div",
+    { class: "actions" },
+    buildElement(
+      "button",
+      {
+        type: "button",
+        id: to === "picture" ? "use-picture" : "use-numbers",
+        class: "secondary",
+        disabled: busy !== undefined,
+        onClick: () => {
+          if (review) readPhoto(Promise.resolve(review.photo), to).catch(reportFailure);
+        },
+      },
+      to === "picture" ? "Treat as picture puzzle" : "Treat as numbered puzzle",
+    ),
+  );
+}
+
+function renderPictureReview(state: ReviewState, picture: PictureState, figure: HTMLElement): void {
+  const { reading } = picture;
+  const check = checkArrangement(reading, picture.arrangement);
+  const effective =
+    check.status === "ok" || check.status === "fixed" ? check.arrangement : undefined;
+  const shown = effective ?? picture.arrangement;
+  const board = effective ? toBoard(reading, effective) : undefined;
+  const doubtful = new Set(listDoubtfulPositions(shown));
+  const crops = mapTileCrops(reading, shown);
+  const panel = buildElement("div", { class: "board-panel" });
+  if (picture.recognised) {
+    panel.append(
+      buildElement(
+        "p",
+        { class: "check ok", id: "recognised", role: "status" },
+        "Recognised your saved puzzle. ",
+        buildElement(
+          "button",
+          {
+            type: "button",
+            id: "not-this-puzzle",
+            class: "secondary",
+            disabled: busy !== undefined,
+            onClick: () => {
+              readPhoto(Promise.resolve(state.photo), "picture", false).catch(reportFailure);
+            },
+          },
+          "Not this puzzle",
+        ),
+      ),
+    );
+  }
+  const selected = picture.selected;
+  panel.append(
+    buildElement("h3", {}, "Solved picture"),
+    buildElement(
+      "p",
+      { class: "hint" },
+      "How the tiles fit together when solved. Tap a tile, then another, to swap them. Tap the empty square to choose where the empty slot ends up.",
+    ),
+    createGrid({
+      size: reading.size,
+      values: shown.solved.map((_, position) => tileNumberAt(shown, position)),
+      flagged: doubtful,
+      selected,
+      crops,
+      title: "Solved picture",
+      action: "Tap to select, then tap another to swap.",
+      idPrefix: "solved-cell",
+      onCell: (position) => {
+        if (selected === undefined || selected === position) {
+          picture.selected = selected === position ? undefined : position;
+        } else {
+          picture.arrangement = swapPositions(picture.arrangement, selected, position);
+          picture.selected = undefined;
+          supersedeSolve();
+          // Once a solve has saved this puzzle, the saved copy follows the latest arrangement that
+          // can be solved, so a later photo comes back as the user left it, not as first solved.
+          if (picture.saved) {
+            const edited = checkArrangement(reading, picture.arrangement);
+            if (edited.status === "ok" || edited.status === "fixed")
+              rememberPuzzle(picture, edited.arrangement);
+          }
+        }
+        focusId = `solved-cell-${String(position)}`;
+        render();
+      },
+    }),
+    buildElement(
+      "p",
+      { class: "hint", id: "selection", role: "status" },
+      selected === undefined
+        ? doubtful.size > 0
+          ? `${String(doubtful.size)} ${doubtful.size === 1 ? "tile is" : "tiles are"} outlined with a dashed line: the tiles we are least sure of. Check them against your puzzle's picture.`
+          : ""
+        : `${tileNumberAt(shown, selected) === 0 ? "The empty square" : `Tile ${String(tileNumberAt(shown, selected))}`} is selected. Tap the tile to swap it with, or tap it again to cancel.`,
+    ),
+  );
+  if (board) {
+    panel.append(
+      buildElement("h3", {}, "Your puzzle now"),
+      createGrid({
+        size: reading.size,
+        values: board.cells,
+        crops,
+        title: "Your puzzle as photographed, tiles numbered by their place in the solved picture",
+        idPrefix: "photo-cell",
+      }),
+    );
+  }
+  if (check.status === "fixed") {
+    const [a, b] = check.swapped;
+    const numberOf = (cell: number): number =>
+      tileNumberAt(check.arrangement, check.arrangement.solved.indexOf(cell));
+    panel.append(
+      buildElement(
+        "p",
+        { class: "check ok", id: "check", role: "status" },
+        `Tiles ${String(numberOf(a))} and ${String(numberOf(b))} look the same, so we put them the other way round to make the puzzle solvable. You cannot tell the difference.`,
+      ),
+    );
+  } else if (check.status === "ok") {
+    panel.append(
+      buildElement(
+        "p",
+        { class: "check ok", id: "check", role: "status" },
+        "This arrangement can be solved. Compare it with your puzzle's picture; swap any tiles that are wrong.",
+      ),
+    );
+  } else {
+    panel.append(
+      buildElement(
+        "p",
+        { class: "check bad", id: "check", role: "alert" },
+        check.status === "unsolvable" && doubtful.size > 0
+          ? "Cannot solve yet: this arrangement cannot be reached by sliding. Swap one pair of tiles (check the outlined ones first), or undo your last swap."
+          : `Cannot solve yet: ${check.reason}. Swap tiles in the solved picture.`,
+      ),
+    );
+  }
+  panel.append(
+    createSolveControls(reading.size, board, effective && { state: picture, effective }),
+  );
+  if (picture.saved) {
+    panel.append(
+      buildElement(
+        "p",
+        { class: "hint", id: "saved-note", role: "status" },
+        picture.saved === "saved"
+          ? "Saved this puzzle on this device, so a later photo of it is recognised. Later corrections that can be solved are saved too."
+          : "Could not save this puzzle on this device.",
+      ),
+    );
+  }
+  panel.append(createModeSwitch("numbers"));
+  reviewSection.append(buildElement("div", { class: "review-body" }, panel, figure));
+}
+
+function renderSaved(): void {
+  savedSection.hidden = savedCount === 0;
+  savedSection.replaceChildren();
+  if (savedCount === 0) return;
+  savedSection.append(
+    buildElement(
+      "p",
+      { class: "hint" },
+      `${String(savedCount)} picture ${savedCount === 1 ? "puzzle is" : "puzzles are"} saved on this device. They are only used to recognise your puzzle in a later photo.`,
+    ),
+    buildElement(
+      "button",
+      {
+        type: "button",
+        id: "forget-saved",
+        class: "secondary",
+        onClick: () => {
+          forgetProfiles(profileStore);
+          savedCount = loadProfiles(profileStore).length;
+          focusId = "use-camera";
+          render();
+        },
+      },
+      "Forget saved puzzles",
+    ),
+  );
+}
+
+/** Remembers a puzzle the user has confirmed by solving it; a saved puzzle it matches is replaced. */
+function rememberPuzzle(picture: PictureState, arrangement: Arrangement): void {
+  const { reading } = picture;
+  const earlier = findBestProfileMatch(reading, loadProfiles(profileStore))?.profile;
+  picture.saved = saveProfile(profileStore, createProfile(reading, arrangement), earlier)
+    ? "saved"
+    : "failed";
+  savedCount = loadProfiles(profileStore).length;
+}
+
+function createSolveControls(
+  size: GridSize,
+  board: Board | undefined,
+  picture?: { state: PictureState; effective: Arrangement },
+): HTMLElement {
   if (busy === "solving") {
     return buildElement(
       "div",
@@ -244,7 +488,7 @@ function createSolveControls(size: GridSize, board: Board | undefined): HTMLElem
         id: "solve",
         disabled: board === undefined || busy !== undefined,
         onClick: () => {
-          if (board) startSolve(board).catch(reportFailure);
+          if (board) startSolve(board, picture).catch(reportFailure);
         },
       },
       "Solve",
@@ -265,6 +509,7 @@ function renderSolution(): void {
       notGuaranteedShortest: state.notGuaranteedShortest,
       millis: state.millis,
       onStep: setStep,
+      ...(state.crops ? { crops: state.crops } : {}),
     }),
   );
 }
@@ -288,7 +533,10 @@ function stopSolveTimer(): void {
   solveTimer = undefined;
 }
 
-async function startSolve(board: Board): Promise<void> {
+async function startSolve(
+  board: Board,
+  picture?: { state: PictureState; effective: Arrangement },
+): Promise<void> {
   const mine = ++generation;
   busy = "solving";
   solution = undefined;
@@ -310,7 +558,9 @@ async function startSolve(board: Board): Promise<void> {
         notGuaranteedShortest: outcome.notGuaranteedShortest,
         millis: outcome.millis,
         step: 0,
+        ...(picture ? { crops: mapTileCrops(picture.state.reading, picture.effective) } : {}),
       };
+      if (picture) rememberPuzzle(picture.state, picture.effective);
     }
   } catch (error) {
     if (mine !== generation) return;
@@ -330,6 +580,9 @@ function finishSolve(): void {
   busy = undefined;
   focusId = solution ? "next" : "solve";
   render();
+  // Focusing "next" scrolls just far enough to show the button, which leaves the heading above the
+  // top of a phone screen.
+  if (solution) document.getElementById("solution-heading")?.scrollIntoView({ block: "start" });
 }
 
 function cancelSolve(): void {
@@ -350,7 +603,11 @@ function supersedeSolve(): number {
   return mine;
 }
 
-async function readPhoto(photoPromise: Promise<Photo>): Promise<void> {
+async function readPhoto(
+  photoPromise: Promise<Photo>,
+  mode: ReadMode = "auto",
+  useSavedPuzzles = true,
+): Promise<void> {
   const mine = supersedeSolve();
   busy = "reading";
   review = undefined;
@@ -360,8 +617,30 @@ async function readPhoto(photoPromise: Promise<Photo>): Promise<void> {
   try {
     const photo = await photoPromise;
     if (mine !== generation) return;
-    const result = await vision.read(photo.image);
+    const reading = await vision.read(
+      photo.image,
+      mode,
+      useSavedPuzzles ? loadProfiles(profileStore) : [],
+    );
     if (mine !== generation) return;
+    if (reading.kind === "picture") {
+      review = {
+        photo,
+        quad: reading.reading.quad,
+        size: reading.reading.size,
+        picture: {
+          reading: reading.reading,
+          arrangement: reading.arrangement,
+          recognised: reading.recognised,
+        },
+      };
+      return;
+    }
+    if (reading.kind === "no-picture") {
+      review = { photo, problem: reading.message };
+      return;
+    }
+    const result = reading.result;
     if (result.status === "no-board") {
       review = { photo, problem: result.message };
     } else if (result.status === "rejected") {

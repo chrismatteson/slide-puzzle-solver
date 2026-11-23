@@ -3,5 +3,5 @@
   // (document, canvas, ...) used in src/vision or src/puzzle fails the type-check instead of creeping in.
   "extends": "./tsconfig.json",
   "compilerOptions": { "lib": ["ES2023"] },
-  "include": ["src/vision/**/*.ts", "src/puzzle/**/*.ts"]
+  "include": ["src/vision/**/*.ts", "src/puzzle/**/*.ts", "src/picture/**/*.ts"]
 }

@@ -1,15 +1,17 @@
 # slide-puzzle-solver
 
-Reads a photographed 3x3 or 4x4 sliding-tile puzzle (numbers printed on tiles, one empty slot) and
-solves it optimally. The reader and solver are pure TypeScript with no DOM, so the same code runs in
+Live: https://slide-puzzle-solver.vercel.app/
+
+Reads a photographed 3x3 or 4x4 sliding-tile puzzle (numbers printed on tiles, or pieces of one
+picture with no numbers; one empty slot) and solves it optimally. The reader and solver are pure TypeScript with no DOM, so the same code runs in
 Node and in the browser; `src/app` is a mobile-first web app around them (Vite, no UI framework).
 
 ## Run
 
 ```
 bash checks.sh               # npm ci, typecheck, lint, format check, tests, build, Python checks
-                             # (ruff, mypy, pytest; venv in ~/.cache), e2e (if Chromium launches)
-bash scripts/ui-evidence.sh  # the browser e2e alone, failing if Chromium cannot launch
+                             # (ruff, mypy, pytest; venv in ~/.cache), browser e2e
+bash scripts/ui-evidence.sh  # the browser e2e alone, listing its screenshots
 npm run dev                  # app on http://localhost:5173 (camera needs HTTPS or localhost)
 npm run build                # static site in dist/; `npm run preview` serves it
 npm run e2e                  # builds, serves, and drives the app in Chromium (see below)
@@ -29,7 +31,7 @@ npm run train                # retrain the tile classifier -> src/vision/weights
   (instant). 4x4: IDA* with an additive 6-6-3 pattern database (`pattern-db.ts`, `pattern-solver.ts`;
   the 2.4 MB table `pattern-db.bin.gz` is built by `npm run build-pattern-db`, and the second 6-tile
   group is its mirror image across the diagonal). If the optimal search passes a time budget
-  (20 s) it falls back to weighted IDA* and the result is labelled "not guaranteed shortest".
+  (20 s) it falls back to weighted IDA\* and the result is labelled "not guaranteed shortest".
   Unsolvable boards return immediately.
 - `src/app`: the web app. Two Web Workers keep the page responsive: `vision.worker.ts` runs
   `readBoard`; `solve.worker.ts` runs `solve`. Cancelling a solve terminates and restarts only the
@@ -97,6 +99,68 @@ The committed weights were trained on these styles (see "Training provenance").
 Training also jitters each crop: gamma, contrast and brightness, an occasional saturating highlight
 (`synth.augment_grey_window`) and a white-balance cast before the grey conversion.
 
+### Picture-tile puzzles (`gen_picture_photos.py`)
+
+Picture photos reuse the same camera model (perspective, blur, glare, noise, JPEG) on a board whose
+tiles are cut from an openly licensed painting or photo listed in `picture-sources.toml` (6 dev
+pictures for tuning, 12 held out for the eval; `npm run pictures:fetch` downloads and checks them). The
+empty slot's home is bottom-right on 70% of boards, another corner on 18%, anywhere on the rest; boards
+are scrambled by a random walk of the slot, so every one is solvable.
+
+## Picture puzzles
+
+Some puzzles have no numbers: the tiles carry pieces of one picture. The app handles them too.
+
+1. **Which kind?** The numbered reader runs first. Its reading is kept as a numbered board if it was
+   accepted, or if it was rejected but at least a third of the cells were read with confidence 0.95
+   (`MIN_CONFIDENT_SHARE` in `src/app/routing.ts`; measured: a picture puzzle reads 1 of 16 cells
+   confidently, the numbered low-confidence fixture 4 of 9). Otherwise the picture reader runs. If it
+   finds no board either, the numbered reader's message is shown. Both review screens have a button
+   ("Treat as picture puzzle" / "Treat as numbered puzzle") that re-reads the same photo the other way.
+2. **Reading the board** (`src/picture/read.ts`): the board is found as for numbered puzzles, the tile
+   grid is fitted, and every cell is cut to a 64x64 colour crop. The empty slot is the cell that looks
+   most like the frame.
+3. **Assembly** (`src/picture/assemble.ts`): the crops are arranged into one picture by how well their
+   edges continue into each other. Sliding puzzles only reach half of all arrangements, so the result is
+   checked for parity (`checkArrangement`); if it is unreachable and two tiles look the same
+   (near-identical crops), those two are exchanged, which cannot be seen; the screen says so and outlines both tiles.
+4. **Confirming**: the review screen shows the proposed solved picture and, below it, the board as
+   photographed, every tile drawn from the photo with its number: the number is the tile's place in the
+   solved picture (1, 2, 3, ... in reading order, skipping the empty slot's home). Tiles the assembler
+   is unsure of (confidence below 0.15, `LOW_TILE_CONFIDENCE` in `src/app/picture-review.ts`) have a
+   dashed outline. Tap one tile of the solved picture, then another, to swap them (buttons, so the
+   keyboard works too); tapping the empty square and a tile moves where the empty slot ends up. The
+   arrangement is re-checked after every swap and the reason shown if it cannot be solved.
+5. **Solving** uses the same solver worker; moves are named by tile number ("Move 5 right") and the
+   board shows the photo's tiles with their numbers.
+6. **Saved puzzles**: after a solve, the puzzle's tiles (16x16 thumbnails, about 15 KB for 4x4, at most
+   five puzzles) are saved in `localStorage` on this device only. A later picture photo is matched
+   against them first (`matchProfile`, which copes with a new scramble and different light); a match
+   skips assembly and says "Recognised your saved puzzle", with "Not this puzzle" to assemble from
+   scratch. "Forget saved puzzles" deletes them. If the browser blocks or fills the storage, older
+   puzzles are dropped or nothing is saved, and the screen says so.
+
+Reading and assembly run in the vision worker, not on the page. The solver handles an empty slot whose
+home is anywhere; on a 4x4 board with the home in a corner it uses the pattern table and is optimal,
+with the home on an edge or in the middle it uses plain IDA\* within the 20 s budget and may label the
+answer "not guaranteed shortest". Limits: tiles must really be
+pieces of one picture with some detail (flat-coloured tiles cannot be told apart, and the parity check
+may then blame the wrong tile, so check the proposal against your puzzle); a tile that looks like
+a neighbour's continuation can be misplaced, which is why the proposal is shown for confirmation
+rather than solved silently; the owner's photo in `test/fixtures/owner-picture` is test data and is
+not part of the built site.
+
+## Deploy
+
+The site is a static build, deployed by Vercel from `main` to https://slide-puzzle-solver.vercel.app/.
+Vercel settings: Framework preset Vite, install command `npm ci`, build command `npm run build`, output
+directory `dist`, Node 22 (`engines` in `package.json`). Nothing else is needed: no Python and no venv,
+because the pattern table (`src/puzzle/pattern-db.bin.gz`) and the classifier weights
+(`src/vision/weights.json`) are committed and bundled by Vite. Assets load by relative URL (`base: "./"`),
+so `dist/` also works from any path on a static host. No `vercel.json` is needed (one page, no routes).
+`npx tsx scripts/check-dist.ts` (run by `checks.sh` after the build) fails if the pattern table or the
+weights are missing from `dist/` or if anything from `test/` was bundled.
+
 ## Measured accuracy
 
 Held-out eval sets are synthetic photos from `npm run gen` (seed 20240601) and `npm run eval:seeds`
@@ -104,7 +168,7 @@ Held-out eval sets are synthetic photos from `npm run gen` (seed 20240601) and `
 only the four fonts in `fonts/eval` (Comic Neue Bold, Playfair Display old-style digits, Slabo 27px,
 Josefin Sans), which no training code reads. Nothing was tuned on seeds 7 or 99.
 
-Run on 2026-11-22 at commit e9c420d (`rm -rf data/eval-seed* && npm run eval:seeds`, Node v22.23.3,
+Run on 2026-11-22 (`rm -rf data/eval-seed* && npm run eval:seeds`, Node v22.23.3,
 `nproc` 4, seeds evaluated one after another; table pasted as printed):
 
 | seed     | images | exact-read | false-accept | unsolvable rejected | detection | frame-tight | grid-size | per-cell | mean ms/image |
@@ -182,6 +246,43 @@ To measure real-photo accuracy properly, collect 30+ labelled photos of the targ
 different lighting, evaluate them with `npx tsx scripts/eval.ts <dir> <dir>/results.json`, and re-check the
 confidence threshold on one half before reporting the other.
 
+### Picture puzzles
+
+`npm run pictures:fetch && npm run gen:picture && npm run eval:picture`: 144 synthetic photos (seed
+20261122, half 3x3 and half 4x4) of the held-out openly licensed paintings and photos in
+`picture-sources.toml` (licence and source per picture), cut into tiles, scrambled by sliding and
+photographed with perspective, blur, glare and JPEG noise. The main table measures **assembly alone**:
+the crops are cut from the labelled tile area and the labelled empty slot is given, so it says nothing
+about finding the board in the photo. "exact" is the whole solved layout right, "neighb" the share of
+right neighbour pairs, "home" the empty slot's home right. Run on 2026-11-23, Node v22.23.3:
+
+| set | n   | exact | neighb | home  | mean ms |
+| --- | --- | ----- | ------ | ----- | ------- |
+| 3x3 | 72  | 43.1% | 70.3%  | 51.4% | 96      |
+| 4x4 | 72  | 45.8% | 74.0%  | 56.9% | 580     |
+| all | 144 | 44.4% | 72.9%  | 54.2% | 338     |
+
+The same run also measures the app's **real path**, `readPictureBoard` then `assemblePicture`, with
+nothing labelled given (board, grid size and empty slot all found from the photo; time is both steps).
+"exact" is the whole solved layout right, "size" the grid size found right, "slot" the empty slot found
+at the right cell. In 10 of the 144 photos no board was found at all; they count as wrong everywhere.
+
+| set | n   | exact | size  | slot  | mean ms |
+| --- | --- | ----- | ----- | ----- | ------- |
+| 3x3 | 72  | 20.8% | 87.5% | 50.0% | 649     |
+| 4x4 | 72  | 16.7% | 97.2% | 38.9% | 1141    |
+| all | 144 | 18.8% | 92.4% | 44.4% | 895     |
+
+So 64 of 144 photos (44%) come out right from the labelled area with no help, and 27 of 144 (19%) when
+the app has to find the board itself. Of the other 80 in the assembly-only run (`data/picture-eval-results.json`),
+18 are one or two swaps from right (the review screen's edit: exchange two solved positions); 13 are three or four;
+49 need five or more, and in 66 of the 80 the empty slot's home is wrong too, so fixing one on the review
+screen often means rearranging much of the picture. The assembly constants were chosen on the owner's photo and its decode variants (the tests in
+`test/picture-*.test.ts`) and checked against this set so as not to lose accuracy on it; it was not a
+fully blind held-out set for those choices. The owner's 4x4 photo (`test/fixtures/owner-picture`) is
+read and assembled exactly, from Node's decode and from Chromium's at 960x1280 (the size the app uses), and solved in 24
+moves; two of its tiles (solved places 7 and 11) are a near tie and are outlined for checking.
+
 ## Solver speed (Node 22, one core)
 
 Measured by `test/pattern-solver.test.ts`: Korf's first ten instances (optimal 46-59 moves) take
@@ -193,7 +294,9 @@ Manhattan + linear-conflict search (3x3, and 4x4 without the table) takes ~30 s 
 ## Browser e2e
 
 `npm run e2e` (Playwright, pinned) builds the app, serves it with `vite preview`, and at 390x844
-uploads committed fixtures (3x3, 4x4, one unsolvable photo, one low-confidence photo), checks the board shown,
+uploads committed fixtures (3x3, 4x4, one unsolvable photo, one low-confidence photo, and, in
+`e2e/picture.e2e.ts`, a picture puzzle: picture review, swapping tiles, solving, recognising a saved puzzle,
+switching reading mode), checks the board shown,
 the first move and move count of the solution, the rejection reason and highlighted cells, manual correction,
 confirming or changing each unsure cell, a fake camera capture (a fixture served as the camera's video), a
 denied camera, tapping "Use camera" twice (one stream, every track ended on Close), cancelling a long solve
@@ -201,9 +304,9 @@ offline, and a new upload or a cell correction during a solve (the old solve is 
 1-3 s, a rejected one 2-3x that), not Playwright's 5 s default.
 Every test fails on console errors; the read/solve tests go offline after load and fail on any request.
 Screenshots land in `e2e-artifacts/` (gitignored). It needs Chromium and its system libraries
-(`npx playwright install --with-deps chromium`, root). `checks.sh` runs it when Chromium launches and
-prints "e2e: NOT RUN" otherwise; `bash scripts/ui-evidence.sh` runs the same suite and fails instead.
-`npx playwright test --list` shows every test; all of them pass in this workspace.
+(`npx playwright install --with-deps chromium`, root). `checks.sh` runs it and fails when Chromium cannot
+be launched; `bash scripts/ui-evidence.sh` runs the same suite on its own.
+`npx playwright test --list` shows every test.
 
 ## Limitations
 
@@ -235,22 +338,3 @@ eval-split photo or font was used: the training code reads `fonts/train` only.
 `fonts/eval` or any font not in `fonts/train`, has `eval` in its `source`, or lives under `data/eval*`.
 An `.npz` holds only pixels, so this is a declaration check: crops cut from eval photos must not be
 declared as anything else.
-
-## Bringing this back to chrismatteson/slide-puzzle-solver
-
-This directory is a self-contained replacement for that repo's `web/` and `shared/` packages; nothing
-from the old pipeline is needed. Recommended as one PR on a fresh branch there:
-
-1. Delete the MobileSAM path: `shared/src/utils/imageProcessor.ts`, `web/src/utils/onnxInit.ts`,
-   `web/public/js/ort.min.js`, `scripts/download-model.sh`, `scripts/convert_model.py`,
-   `scripts/copy-wasm.sh`, and the `onnxruntime-web`, `@tensorflow/*`, `opencv.js` and `three`
-   dependencies. The old A* solver (`shared/src/utils/puzzleSolver.ts`) is superseded by `src/puzzle/`.
-2. Copy this directory's contents to the repo root (or to `web/`; `checks.sh` runs from its own
-   directory), keeping `package-lock.json`, `fonts/` (training and eval fonts, with their licence
-   note), `src/vision/weights.json` and `src/puzzle/pattern-db.bin.gz`.
-3. Add a CI job that runs `bash checks.sh` and `npx playwright install --with-deps chromium && npm run e2e`
-   (GitHub runners have the browser libraries, so the e2e tests run there).
-4. Before relying on it, add more real photos: photograph puzzles, label them like the synthetic ones
-   (`name.jpg|jpeg|png` + `name.json` with `{"size": N, "state": [...]}`, blank = 0; `corners`, `font` and
-   `solvable` optional) and run `npx tsx scripts/eval.ts <dir> <dir>/results.json` on them, or add entries
-   to `real-photos.toml`.

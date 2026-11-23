@@ -1,0 +1,15 @@
+data
+node_modules
+.venv
+dist
+package-lock.json
+src/vision/weights.json
+*.py
+e2e-artifacts
+playwright-report
+test-results
+*.bin.gz
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv

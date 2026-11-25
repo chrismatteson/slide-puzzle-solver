@@ -3,6 +3,10 @@
 # All are public-domain works (artist died long ago, or NASA / US government) from Wikimedia Commons;
 # `license` is as stated on the source page. Wikimedia serves the 1280 px thumbnail.
 #
+# `set = "line-art"` entries are low-detail line drawings for the line-art failure-mode set of
+# scripts/gen_correction_photos.py (public domain or CC0 / CC BY only; the paintings' generator skips them).
+# They are small PNG/JPEG originals, saved under data/pictures/ with a .jpg name whichever they are.
+#
 # split: `dev` pictures are for tuning the assembly; `eval` pictures are held out and must never be
 # used for tuning (the held-out numbers in the README come from them).
 
@@ -167,3 +171,23 @@ author = "Gustave Caillebotte"
 license = "Public domain"
 sha256 = "99721da043dc3b965765b17327627653e1e226480f8d69c6034efe1074fcd04a"
 split = "eval"
+
+[[picture]]
+name = "brown-bear-coloring-page"
+set = "line-art"
+page = "https://commons.wikimedia.org/wiki/File:Brown-bear-coloring-page.png"
+url = "https://upload.wikimedia.org/wikipedia/commons/5/5b/Brown-bear-coloring-page.png"
+author = "Sumbrella45"
+license = "CC0"
+sha256 = "8f392301afea8476b313ec49d8967e1b0435167baad2e50c1c57ab2bb03bbd5c"
+split = "eval"
+
+[[picture]]
+name = "asarum-caudatum-coloring-page-guide"
+set = "line-art"
+page = "https://commons.wikimedia.org/wiki/File:Asarum_caudatum_coloring_page-guide.png"
+url = "https://upload.wikimedia.org/wikipedia/commons/b/bc/Asarum_caudatum_coloring_page-guide.png"
+author = "Karl Urban"
+license = "Public domain"
+sha256 = "1b6e65065d6837461bd7faa2ddfbcddb9411fb8b3ffec138daaceb956f0c4ab8"
+split = "dev"

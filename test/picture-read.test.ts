@@ -84,6 +84,14 @@ const BOARD_EDGE = 600;
 const FRAME = 40;
 const GAP = 6;
 
+/** Where the frame's outer corners (TL, TR, BR, BL) land in the photo. */
+const BOARD_CORNERS: Quad = [
+  { x: 150, y: 120 },
+  { x: 760, y: 150 },
+  { x: 790, y: 700 },
+  { x: 120, y: 660 },
+];
+
 interface SyntheticBoard {
   image: RgbaImage;
   blank: number;
@@ -99,12 +107,7 @@ function renderBoard(size: GridSize, slot: "dark" | "light", blank: number): Syn
   ];
   const width = 900;
   const height = 800;
-  const corners: Quad = [
-    { x: 150, y: 120 },
-    { x: 760, y: 150 },
-    { x: 790, y: 700 },
-    { x: 120, y: 660 },
-  ];
+  const corners = BOARD_CORNERS;
   const board: Quad = [
     { x: 0, y: 0 },
     { x: BOARD_EDGE, y: 0 },
@@ -175,13 +178,46 @@ describe("readPictureBoard on synthetic boards", () => {
 
   it("takes the grid size as given", () => {
     const synthetic = renderBoard(3, "dark", 0);
-    expect(expectReading(readPictureBoard(synthetic.image, 3)).size).toBe(3);
+    expect(expectReading(readPictureBoard(synthetic.image, { size: 3 })).size).toBe(3);
   });
 
   it("finds no board in a flat image", () => {
     const data = new Uint8ClampedArray(200 * 150 * 4).fill(128);
     expect(readPictureBoard({ width: 200, height: 150, data })).toMatchObject({
       status: "no-board",
+    });
+  });
+});
+
+describe("readPictureBoard with the user's corners", () => {
+  it("keeps corners that are on the tiles within 1% of the side", () => {
+    // The synthetic board gives the seam snap a weak, gap-wide target, so this is a bound the two-start
+    // snap meets (largest corner move 0.88% of the side) and one start from the comb fit alone does not
+    // (1.45%); it is not a measure of accuracy. The marked area is the tile area less 2 px per side.
+    const synthetic = renderBoard(3, "dark", 4);
+    const toPhoto = computeHomography(
+      [
+        { x: 0, y: 0 },
+        { x: BOARD_EDGE, y: 0 },
+        { x: BOARD_EDGE, y: BOARD_EDGE },
+        { x: 0, y: BOARD_EDGE },
+      ],
+      BOARD_CORNERS,
+    );
+    const lo = FRAME + 2;
+    const hi = BOARD_EDGE - FRAME - 2;
+    const marked = [
+      { x: lo, y: lo },
+      { x: hi, y: lo },
+      { x: hi, y: hi },
+      { x: lo, y: hi },
+    ];
+    const quad = marked.map((p) => applyHomography(toPhoto, p)) as unknown as Quad;
+    const reading = expectReading(readPictureBoard(synthetic.image, { quad, size: 3 }));
+    const side = Math.hypot(quad[1].x - quad[0].x, quad[1].y - quad[0].y);
+    reading.quad.forEach((corner, i) => {
+      const user = quad[i] as Point;
+      expect(Math.hypot(corner.x - user.x, corner.y - user.y)).toBeLessThan(0.01 * side);
     });
   });
 });

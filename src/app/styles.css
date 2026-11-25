@@ -398,3 +398,115 @@ h3 {
   min-height: 40px;
   margin-left: 8px;
 }
+
+/* Corner editor: dots over the photo. The stage's padding keeps the 44 px hit areas of edge dots on screen. */
+.corner-stage {
+  padding: 22px;
+  max-width: 524px;
+}
+
+.corner-wrap path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-opacity: 0.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.corner-handle {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 0;
+  background: transparent;
+  touch-action: none;
+}
+
+.corner-handle::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow:
+    0 0 0 2px var(--on-accent),
+    0 0 0 4px var(--accent);
+}
+
+.corner-handle:focus-visible {
+  outline: none;
+}
+
+.corner-handle:focus-visible::before {
+  box-shadow:
+    0 0 0 2px var(--on-accent),
+    0 0 0 5px var(--text);
+}
+
+.corner-loupe {
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  transform: translateX(-50%);
+  border: 3px solid var(--on-accent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--accent);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.corner-loupe[hidden] {
+  display: none;
+}
+
+.corner-size {
+  margin: 0 0 8px;
+  padding: 8px 16px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.corner-size-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.corner-size-choice input {
+  width: 24px;
+  height: 24px;
+  accent-color: var(--accent);
+}
+
+.blank-chooser .cell.picture.selected {
+  outline-offset: -3px;
+}
+
+/* The editor's photo, cut off at the wrap's edge when zoomed. */
+.corner-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.corner-clip img {
+  position: absolute;
+  max-width: none;
+}
+
+.corner-wrap path.guide {
+  stroke-opacity: 0.35;
+  stroke-dasharray: 6 6;
+}
+
+#editor-zoom {
+  margin-bottom: 8px;
+}

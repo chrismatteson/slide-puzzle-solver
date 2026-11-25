@@ -734,16 +734,19 @@ def photograph_flat_board(
     width: int,
     height: int,
     scale: tuple[float, float] = (0.30, 0.88),
+    quad: np.ndarray | None = None,
 ) -> tuple[Image.Image, np.ndarray, Callable[[np.ndarray], np.ndarray]]:
     """Put a flat board render (frame included) on a table and photograph it.
 
     `margin` is the frame's share of the board edge, `avoid` a colour the table should contrast with,
-    `scale` the board's side as a share of the photo's short side (min, max).
+    `scale` the board's side as a share of the photo's short side (min, max); `quad` places the board
+    at given photo corners (TL, TR, BR, BL) instead of a random placement within `scale`.
     Returns the photo, the board's outer corners (TL, TR, BR, BL) in it, and a function mapping
     flat-board pixel points to photo pixels (perspective and lens distortion included).
     """
     background = generate_random_background(rng, width, height, avoid)
-    quad = generate_random_quad(rng, width, height, scale)
+    if quad is None:
+        quad = generate_random_quad(rng, width, height, scale)
     src = np.array([[0, 0], [FLAT_SIZE, 0], [FLAT_SIZE, FLAT_SIZE], [0, FLAT_SIZE]], float)
     coeffs = compute_homography_coefficients(src, quad)
     warped = flat.transform(

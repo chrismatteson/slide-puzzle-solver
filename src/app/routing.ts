@@ -3,12 +3,14 @@
 
 import { MIN_CELL_CONFIDENCE } from "../puzzle/consistency.ts";
 import { assemblePicture } from "../picture/assemble.ts";
-import { readPictureBoard } from "../picture/read.ts";
+import { readPictureBoard, setBlank } from "../picture/read.ts";
 import { findBestProfileMatch, type PuzzleProfile } from "../picture/profile.ts";
 import { type Arrangement, type PictureReading } from "../picture/types.ts";
 import { defaultWeights } from "../vision/default-weights.ts";
 import { type RgbaImage } from "../vision/image.ts";
-import { type ReadResult, readBoard } from "../vision/read-board.ts";
+import { type ReadOptions, type ReadResult, readBoard } from "../vision/read-board.ts";
+
+export { type ReadOptions };
 
 /** What the user asked for: `auto` lets the numbered reader's result decide. */
 export type ReadMode = "auto" | "numbers" | "picture";
@@ -23,6 +25,9 @@ export type PhotoReading =
       recognised: boolean;
     }
   | { kind: "no-picture"; message: string };
+
+/** A reading known to be a picture one, such as what re-arranging a picture reading gives. */
+export type PictureArranged = Extract<PhotoReading, { kind: "picture" }>;
 
 /**
  * Smallest share of cells the numbered reader must be sure of (MIN_CELL_CONFIDENCE) for a rejected
@@ -50,12 +55,19 @@ export function isNumberedReading(result: ReadResult): boolean {
 function readAsPicture(
   image: RgbaImage,
   profiles: readonly PuzzleProfile[],
+  options: ReadOptions,
 ): PhotoReading | undefined {
-  const reading = readPictureBoard(image);
+  const reading = readPictureBoard(image, options);
   if ("status" in reading) return undefined;
   const saved = findBestProfileMatch(reading, profiles);
+  // The saved puzzle knows which cell is empty (the user may have chosen it); the reader's guess may not.
   return saved
-    ? { kind: "picture", reading, arrangement: saved.arrangement, recognised: true }
+    ? {
+        kind: "picture",
+        reading: saved.blank === reading.blank ? reading : setBlank(reading, saved.blank),
+        arrangement: saved.arrangement,
+        recognised: true,
+      }
     : {
         kind: "picture",
         reading,
@@ -64,21 +76,44 @@ function readAsPicture(
       };
 }
 
+/**
+ * Arranges `reading`'s cells with the empty slot at photo cell `blank`, as the user chose. Saved puzzles
+ * are not consulted: the user has just said what the photo shows.
+ */
+export function reassemblePicture(reading: PictureReading, blank: number): PictureArranged {
+  const chosen = setBlank(reading, blank);
+  return {
+    kind: "picture",
+    reading: chosen,
+    arrangement: assemblePicture(chosen.cells, chosen.size, blank),
+    recognised: false,
+  };
+}
+
 export function readPhoto(
   image: RgbaImage,
   mode: ReadMode,
   profiles: readonly PuzzleProfile[],
+  options: ReadOptions = {},
 ): PhotoReading {
   if (mode === "picture") {
     return (
-      readAsPicture(image, profiles) ?? {
+      readAsPicture(image, profiles, options) ?? {
         kind: "no-picture",
         message: "No board-like shape was found in the photo.",
       }
     );
   }
-  const numbers = readBoard(image, defaultWeights);
+  const numbers = readBoard(image, defaultWeights, options);
   if (mode === "numbers" || isNumberedReading(numbers)) return { kind: "numbers", result: numbers };
   // Not numbered and no picture board either: the numbered reader's message is the better one.
-  return readAsPicture(image, profiles) ?? { kind: "numbers", result: numbers };
+  return readAsPicture(image, profiles, options) ?? { kind: "numbers", result: numbers };
+}
+
+/**
+ * What a review remembers of the read that made it: the corners the user placed, which a re-read of
+ * the photo keeps. A read the app did alone leaves nothing to keep.
+ */
+export function keepUserCorners(options: ReadOptions): ReadOptions | undefined {
+  return options.quad ? options : undefined;
 }

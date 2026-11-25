@@ -1,22 +1,30 @@
 import { type Board, type Move } from "../puzzle/board.ts";
 import { type PuzzleProfile } from "../picture/profile.ts";
 import { type RgbaImage } from "../vision/image.ts";
-import { type PhotoReading, type ReadMode } from "./routing.ts";
+import { type PictureReading } from "../picture/types.ts";
+import { type ReadOptions } from "../vision/read-board.ts";
+import { type PhotoReading, type PictureArranged, type ReadMode } from "./routing.ts";
 
 // Messages between the page and its two workers. Vision and solving have separate workers so that
 // cancelling a long solve (terminating its worker) leaves the loaded classifier alone.
 
-export type VisionRequest = {
-  type: "read";
-  id: number;
-  image: RgbaImage;
-  mode: ReadMode;
-  /** Saved picture puzzles to match a picture photo against first. */
-  profiles: PuzzleProfile[];
-};
+export type VisionRequest =
+  | {
+      type: "read";
+      id: number;
+      image: RgbaImage;
+      mode: ReadMode;
+      /** Saved picture puzzles to match a picture photo against first. */
+      profiles: PuzzleProfile[];
+      /** Corners and size the user set; absent for a first read. */
+      options?: ReadOptions;
+    }
+  /** Arranges an already-read picture with the empty slot at the photo cell the user chose. */
+  | { type: "reassemble"; id: number; reading: PictureReading; blank: number };
 export type VisionResponse =
   | { type: "ready" }
   | { type: "read"; id: number; result: PhotoReading }
+  | { type: "reassemble"; id: number; result: PictureArranged }
   | { type: "error"; id: number; message: string };
 
 export type SolveRequest =

@@ -6,7 +6,9 @@ import {
   applyHomography,
   computeHomography,
   computeConvexHull,
+  isConvexQuad,
   orderCorners,
+  orderQuadCorners,
   computePolygonArea,
   reduceToQuad,
 } from "../src/vision/geometry.ts";
@@ -153,5 +155,63 @@ describe("RGBA image helpers", () => {
     const short = { width: 4, height: 4, data: new Uint8ClampedArray(63) };
     expect(() => convertToGrey(short)).toThrow(/RGBA buffer has 63 bytes, expected 64/);
     expect(() => convertToSaturation(short)).toThrow(/RGBA buffer has 63 bytes, expected 64/);
+  });
+});
+
+describe("orderQuadCorners", () => {
+  const tl = { x: 10, y: 10 };
+  const tr = { x: 90, y: 20 };
+  const br = { x: 80, y: 90 };
+  const bl = { x: 5, y: 80 };
+
+  it("keeps a quad that is already in order", () => {
+    expect(orderQuadCorners([tl, tr, br, bl])).toEqual([tl, tr, br, bl]);
+  });
+
+  it("puts rotated and mirrored orders of the same corners into TL, TR, BR, BL", () => {
+    for (const order of [
+      [tr, br, bl, tl],
+      [bl, tl, tr, br],
+      [tr, tl, bl, br],
+      [tl, bl, br, tr],
+      [br, bl, tl, tr],
+    ]) {
+      expect(orderQuadCorners(order)).toEqual([tl, tr, br, bl]);
+    }
+  });
+
+  it("orders a board tilted past 45 degrees as the detector's orderCorners does", () => {
+    const angle = (60 * Math.PI) / 180;
+    const corners = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ].map(([x, y]) => ({
+      x: 50 + (x ?? 0) * Math.cos(angle) - (y ?? 0) * Math.sin(angle),
+      y: 50 + (x ?? 0) * Math.sin(angle) + (y ?? 0) * Math.cos(angle),
+    }));
+    const shuffled = [corners[3], corners[0], corners[1], corners[2]] as typeof corners;
+    expect(orderQuadCorners(shuffled)).toEqual(orderCorners(shuffled));
+  });
+
+  it("throws when the corners cross each other or are collinear", () => {
+    expect(() => orderQuadCorners([tl, br, tr, bl])).toThrow("the corners cross each other");
+    const line = [0, 10, 20, 30].map((x) => ({ x, y: 0 }));
+    expect(() => orderQuadCorners(line)).toThrow("the corners cross each other");
+  });
+
+  it("throws unless there are four finite corners", () => {
+    const message = "a quad needs four finite corners";
+    expect(() => orderQuadCorners([tl, tr, br])).toThrow(message);
+    expect(() => orderQuadCorners([tl, tr, br, bl, tl])).toThrow(message);
+    expect(() => orderQuadCorners([tl, tr, br, { x: Number.NaN, y: 1 }])).toThrow(message);
+    expect(() => orderQuadCorners([tl, tr, br, { x: 1, y: Infinity }])).toThrow(message);
+  });
+
+  it("isConvexQuad tells convex from folded", () => {
+    expect(isConvexQuad([tl, tr, br, bl])).toBe(true);
+    expect(isConvexQuad([bl, br, tr, tl])).toBe(true);
+    expect(isConvexQuad([tl, br, tr, bl])).toBe(false);
   });
 });

@@ -12,7 +12,7 @@ const TOLERANCE = 0.02;
 describe("readPictureBoard's tile area on the owner's photo", () => {
   for (const variant of makeVariants()) {
     it(`matches the hand label and assembles as labelled: ${variant.name}`, () => {
-      const result = readPictureBoard(variant.image, 4);
+      const result = readPictureBoard(variant.image, { size: 4 });
       if ("status" in result) throw new Error(result.message);
       const [a, b] = ownerLabel.tilesQuad;
       const side = Math.hypot(b.x - a.x, b.y - a.y) * variant.factor;

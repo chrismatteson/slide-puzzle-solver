@@ -120,6 +120,68 @@ export function createGrid(options: GridOptions): HTMLElement {
   return grid;
 }
 
+export interface BlankChooserOptions {
+  size: GridSize;
+  /** The photographed cells, row-major. */
+  cells: readonly TileCrop[];
+  /** Photo cell currently taken to be the empty slot. */
+  blank: number;
+  onPick: (index: number) => void;
+  onCancel: () => void;
+}
+
+/** The photographed cells as buttons, to tap the one that is empty in the user's puzzle. */
+export function createBlankChooser(options: BlankChooserOptions): HTMLElement {
+  const { size, cells, blank, onPick, onCancel } = options;
+  const grid = buildElement("div", {
+    class: "grid",
+    style: `--size: ${String(size)}`,
+    role: "group",
+    "aria-label": "Cells of your photo",
+  });
+  cells.forEach((crop, index) => {
+    const row = Math.floor(index / size) + 1;
+    const col = (index % size) + 1;
+    const current = index === blank;
+    grid.append(
+      buildElement(
+        "button",
+        {
+          type: "button",
+          id: `blank-cell-${String(index)}`,
+          class: current ? "cell picture selected" : "cell picture",
+          "aria-label": `Row ${String(row)}, column ${String(col)}${current ? ", currently the empty slot" : ""}. Tap if this cell is empty.`,
+          "aria-pressed": current ? "true" : "false",
+          onClick: () => {
+            onPick(index);
+          },
+        },
+        createTileCanvas(crop),
+        current && buildElement("span", { class: "tile-number" }, "Empty"),
+      ),
+    );
+  });
+  return buildElement(
+    "div",
+    { class: "blank-chooser" },
+    buildElement(
+      "p",
+      { class: "hint", id: "blank-hint" },
+      "Tap the cell that is empty in your puzzle.",
+    ),
+    grid,
+    buildElement(
+      "div",
+      { class: "actions" },
+      buildElement(
+        "button",
+        { type: "button", id: "cancel-blank", class: "secondary", onClick: onCancel },
+        "Cancel",
+      ),
+    ),
+  );
+}
+
 /** The photo with the detected board outlined; the SVG shares the photo's pixel coordinates. */
 export function createPhotoFigure(
   url: string,

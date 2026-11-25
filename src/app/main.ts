@@ -7,6 +7,7 @@ import { checkArrangement, toBoard } from "../picture/arrangement.ts";
 import { createProfile, findBestProfileMatch } from "../picture/profile.ts";
 import { type Arrangement, type PictureReading, type TileCrop } from "../picture/types.ts";
 import { type Quad } from "../vision/geometry.ts";
+import { type CornerEditState, createCornerEditor, createOpeningState } from "./corner-editor.ts";
 import { describeCameraError, startCamera, stopCamera } from "./camera.ts";
 import { type Photo, captureVideoFrame, loadPhotoFile } from "./photo.ts";
 import {
@@ -17,8 +18,14 @@ import {
 } from "./picture-review.ts";
 import { forgetProfiles, loadProfiles, openBrowserStore, saveProfile } from "./profiles.ts";
 import { checkBoard, confirmCell, setCell } from "./review.ts";
-import { type ReadMode } from "./routing.ts";
 import {
+  type PictureArranged,
+  type ReadMode,
+  type ReadOptions,
+  keepUserCorners,
+} from "./routing.ts";
+import {
+  createBlankChooser,
   createGrid,
   createConfirmList,
   createNumberPad,
@@ -39,6 +46,12 @@ interface PictureState {
   selected?: number | undefined;
   /** Whether the puzzle was remembered after the last solve. */
   saved?: "saved" | "failed";
+  /** The "Change empty slot" chooser is open. */
+  choosingBlank?: boolean;
+  /** The reading's empty slot is the one the user chose, not the reader's guess. */
+  userBlank?: boolean;
+  /** Said under the empty-slot button: what happened to the user's choice after a re-read. */
+  note?: string;
 }
 
 interface ReviewState {
@@ -52,6 +65,10 @@ interface ReviewState {
   problem?: string;
   /** Cell open in the number pad. */
   editing?: number | undefined;
+  /** Set when this review was read from corners the user placed; a re-read of the photo keeps them. */
+  userRead?: ReadOptions;
+  /** The corner editor is open over this review; cancelling it leaves the review as it was. */
+  corners?: CornerEditState | undefined;
 }
 
 interface SolutionState {
@@ -102,7 +119,7 @@ const solver = createSolverClient(patternDb);
 let generation = 0;
 let review: ReviewState | undefined;
 let solution: SolutionState | undefined;
-let busy: "reading" | "solving" | undefined;
+let busy: "reading" | "arranging" | "solving" | undefined;
 let solveStartedAt = 0;
 let solveTimer: number | undefined;
 let stream: MediaStream | undefined;
@@ -133,22 +150,31 @@ function render(): void {
 }
 
 function renderReview(): void {
-  reviewSection.hidden = review === undefined && busy !== "reading";
+  const reading = busy === "reading" || busy === "arranging";
+  reviewSection.hidden = review === undefined && !reading;
   reviewSection.replaceChildren();
-  if (busy === "reading") {
+  if (reading) {
     reviewSection.append(
-      buildElement("h2", { id: "review-heading" }, "Reading"),
-      buildElement("p", { role: "status" }, "Reading the photo…"),
+      buildElement("h2", { id: "review-heading" }, busy === "reading" ? "Reading" : "Re-arranging"),
+      buildElement(
+        "p",
+        { role: "status" },
+        busy === "reading" ? "Reading the photo…" : "Re-arranging…",
+      ),
     );
     return;
   }
   if (!review) return;
   const state = review;
+  if (state.corners) {
+    renderCornerEditor(state, state.corners);
+    return;
+  }
   reviewSection.append(
     buildElement(
       "h2",
       { id: "review-heading" },
-      state.picture ? "Detected picture puzzle" : "Detected board",
+      state.picture ? "Detected picture puzzle" : state.cells ? "Detected board" : "No board found",
     ),
   );
   const figure = createPhotoFigure(
@@ -169,7 +195,7 @@ function renderReview(): void {
         { class: "notice", role: "alert" },
         `${state.problem ?? "No board found."} Retake the photo, or upload another.`,
       ),
-      createModeSwitch("picture"),
+      createReviewActions("picture"),
     );
     return;
   }
@@ -253,15 +279,68 @@ function renderReview(): void {
         ),
   );
   panel.append(createSolveControls(size, check.accepted ? check.board : undefined));
-  panel.append(createModeSwitch("picture"));
+  panel.append(createReviewActions("picture"));
   reviewSection.append(buildElement("div", { class: "review-body" }, figure, panel));
 }
 
-/** Re-reads the same photo as the other kind of puzzle: the fix for a photo routed the wrong way. */
-function createModeSwitch(to: "picture" | "numbers"): HTMLElement {
+function renderCornerEditor(state: ReviewState, corners: CornerEditState): void {
+  const { photo } = state;
+  reviewSection.append(
+    buildElement("h2", { id: "review-heading" }, "Adjust corners"),
+    createCornerEditor({
+      photo: { url: photo.url, width: photo.image.width, height: photo.image.height },
+      state: corners,
+      onRead: (quad, size) => {
+        // Each kind of review is re-read as that kind, or a numbered puzzle could come back as a picture
+        // one; only the no-board screen has no kind and is routed as a new photo is.
+        const options: ReadOptions = { quad, ...(size ? { size } : {}) };
+        const mode = state.picture ? "picture" : state.cells ? "numbers" : "auto";
+        const { picture } = state;
+        const keep = picture?.userBlank
+          ? { cell: picture.reading.blank, size: picture.reading.size }
+          : undefined;
+        readPhoto(Promise.resolve(photo), { mode, read: options, keepBlank: keep }).catch(
+          reportFailure,
+        );
+      },
+      onCancel: () => {
+        state.corners = undefined;
+        focusId = "adjust-corners";
+        render();
+      },
+    }),
+  );
+}
+
+/** Opens the corner editor at the detected tile area, or a rectangle inside the photo if there is none. */
+function openCornerEditor(state: ReviewState): void {
+  const { width, height } = state.photo.image;
+  state.corners = createOpeningState(state.quad, state.size, width, height);
+  focusId = "corner-0";
+  render();
+}
+
+/**
+ * The buttons under every review: re-read the same photo as the other kind of puzzle (the fix for a
+ * photo routed the wrong way), or place the board's corners by hand (the fix for a wrong outline).
+ */
+function createReviewActions(to: "picture" | "numbers"): HTMLElement {
   return buildElement(
     "div",
     { class: "actions" },
+    buildElement(
+      "button",
+      {
+        type: "button",
+        id: "adjust-corners",
+        class: "secondary",
+        disabled: busy !== undefined,
+        onClick: () => {
+          if (review) openCornerEditor(review);
+        },
+      },
+      "Adjust corners",
+    ),
     buildElement(
       "button",
       {
@@ -270,7 +349,12 @@ function createModeSwitch(to: "picture" | "numbers"): HTMLElement {
         class: "secondary",
         disabled: busy !== undefined,
         onClick: () => {
-          if (review) readPhoto(Promise.resolve(review.photo), to).catch(reportFailure);
+          // The user's corners stay: the switch is about what the tiles are, not where the board is.
+          if (review)
+            readPhoto(Promise.resolve(review.photo), {
+              mode: to,
+              read: review.userRead,
+            }).catch(reportFailure);
         },
       },
       to === "picture" ? "Treat as picture puzzle" : "Treat as numbered puzzle",
@@ -302,7 +386,11 @@ function renderPictureReview(state: ReviewState, picture: PictureState, figure: 
             class: "secondary",
             disabled: busy !== undefined,
             onClick: () => {
-              readPhoto(Promise.resolve(state.photo), "picture", false).catch(reportFailure);
+              readPhoto(Promise.resolve(state.photo), {
+                mode: "picture",
+                useSavedPuzzles: false,
+                read: state.userRead,
+              }).catch(reportFailure);
             },
           },
           "Not this puzzle",
@@ -311,6 +399,13 @@ function renderPictureReview(state: ReviewState, picture: PictureState, figure: 
     );
   }
   const selected = picture.selected;
+  // Near the top, where the first look at the photographed tiles shows a wrong empty slot.
+  panel.append(createBlankControl(state, picture));
+  if (picture.note) {
+    panel.append(
+      buildElement("p", { class: "hint", id: "picture-note", role: "status" }, picture.note),
+    );
+  }
   panel.append(
     buildElement("h3", {}, "Solved picture"),
     buildElement(
@@ -412,8 +507,88 @@ function renderPictureReview(state: ReviewState, picture: PictureState, figure: 
       ),
     );
   }
-  panel.append(createModeSwitch("numbers"));
+  panel.append(createReviewActions("numbers"));
   reviewSection.append(buildElement("div", { class: "review-body" }, panel, figure));
+}
+
+/** "Change empty slot" and, under it once opened, the chooser: the fix for the reader picking the wrong cell as empty. */
+function createBlankControl(state: ReviewState, picture: PictureState): HTMLElement {
+  const button = buildElement(
+    "button",
+    {
+      type: "button",
+      id: "change-blank",
+      class: "secondary",
+      disabled: busy !== undefined,
+      "aria-expanded": picture.choosingBlank ? "true" : "false",
+      onClick: () => {
+        picture.choosingBlank = !picture.choosingBlank;
+        focusId = picture.choosingBlank
+          ? `blank-cell-${String(picture.reading.blank)}`
+          : "change-blank";
+        render();
+      },
+    },
+    "Change empty slot",
+  );
+  const chooser = picture.choosingBlank
+    ? createBlankChooser({
+        size: picture.reading.size,
+        cells: picture.reading.cells,
+        blank: picture.reading.blank,
+        onPick: (index) => {
+          picture.choosingBlank = false;
+          if (index === picture.reading.blank) {
+            focusId = "change-blank";
+            render();
+          } else {
+            changeBlank(state, picture, index).catch(reportFailure);
+          }
+        },
+        onCancel: () => {
+          picture.choosingBlank = false;
+          focusId = "change-blank";
+          render();
+        },
+      })
+    : undefined;
+  return buildElement(
+    "div",
+    { class: "blank-control" },
+    buildElement("div", { class: "actions" }, button),
+    chooser,
+  );
+}
+
+/** Arranges the photo's tiles again with the empty slot at photo cell `blank`; the old arrangement and solve are dropped. */
+async function changeBlank(
+  state: ReviewState,
+  picture: PictureState,
+  blank: number,
+): Promise<void> {
+  const mine = supersedeSolve();
+  busy = "arranging";
+  showNotice(undefined);
+  render();
+  try {
+    const result = await vision.reassemble(picture.reading, blank);
+    if (mine !== generation) return;
+    state.picture = {
+      reading: result.reading,
+      arrangement: result.arrangement,
+      recognised: false,
+      userBlank: true,
+    };
+  } catch (error) {
+    if (mine !== generation) return;
+    showNotice(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (mine === generation) {
+      busy = undefined;
+      focusId = "change-blank";
+      render();
+    }
+  }
 }
 
 function renderSaved(): void {
@@ -603,14 +778,23 @@ function supersedeSolve(): number {
   return mine;
 }
 
+interface ReadPhotoOptions {
+  mode?: ReadMode;
+  /** Match picture photos against the saved puzzles first. */
+  useSavedPuzzles?: boolean;
+  /** Corners and size the user placed; absent for a first read. */
+  read?: ReadOptions | undefined;
+  /** The empty slot the user chose in the review being replaced: kept if the new reading is the same size. */
+  keepBlank?: { cell: number; size: GridSize } | undefined;
+}
+
 async function readPhoto(
   photoPromise: Promise<Photo>,
-  mode: ReadMode = "auto",
-  useSavedPuzzles = true,
+  { mode = "auto", useSavedPuzzles = true, read = {}, keepBlank }: ReadPhotoOptions = {},
 ): Promise<void> {
   const mine = supersedeSolve();
   busy = "reading";
-  review = undefined;
+  // The current review stays until a new one replaces it, so a read that fails leaves the screen as it was.
   solution = undefined;
   showNotice(undefined);
   render();
@@ -621,38 +805,57 @@ async function readPhoto(
       photo.image,
       mode,
       useSavedPuzzles ? loadProfiles(profileStore) : [],
+      read,
     );
     if (mine !== generation) return;
     if (reading.kind === "picture") {
+      let picture: PictureArranged = reading;
+      let note: string | undefined;
+      if (keepBlank && picture.reading.size !== keepBlank.size) {
+        note = "The grid size changed, so the empty slot you chose was dropped.";
+      } else if (keepBlank) {
+        note = "Kept the empty slot you chose.";
+        if (picture.reading.blank !== keepBlank.cell) {
+          const again = await vision.reassemble(picture.reading, keepBlank.cell);
+          if (mine !== generation) return;
+          picture = again;
+        }
+      }
       review = {
         photo,
-        quad: reading.reading.quad,
-        size: reading.reading.size,
+        quad: picture.reading.quad,
+        size: picture.reading.size,
         picture: {
-          reading: reading.reading,
-          arrangement: reading.arrangement,
-          recognised: reading.recognised,
+          reading: picture.reading,
+          arrangement: picture.arrangement,
+          recognised: picture.recognised,
+          ...(keepBlank && picture.reading.size === keepBlank.size ? { userBlank: true } : {}),
+          ...(note ? { note } : {}),
         },
       };
-      return;
-    }
-    if (reading.kind === "no-picture") {
+    } else if (reading.kind === "no-picture") {
       review = { photo, problem: reading.message };
-      return;
-    }
-    const result = reading.result;
-    if (result.status === "no-board") {
-      review = { photo, problem: result.message };
-    } else if (result.status === "rejected") {
+    } else if (reading.result.status === "no-board") {
+      review = { photo, problem: reading.result.message };
+    } else if (reading.result.status === "rejected") {
       review = {
         photo,
-        quad: result.attempt.quad,
-        size: result.attempt.size,
-        cells: result.attempt.cells,
+        quad: reading.result.attempt.quad,
+        size: reading.result.attempt.size,
+        cells: reading.result.attempt.cells,
       };
     } else {
-      review = { photo, quad: result.quad, size: result.board.size, cells: result.cells };
+      review = {
+        photo,
+        quad: reading.result.quad,
+        size: reading.result.board.size,
+        cells: reading.result.cells,
+      };
     }
+    // Only a read that gave a review remembers the corners: a failed read leaves the previous review as it
+    // was, and a superseded one is replaced by the newer read.
+    const userRead = keepUserCorners(read);
+    if (userRead) review.userRead = userRead;
   } catch (error) {
     if (mine !== generation) return;
     showNotice(error instanceof Error ? error.message : String(error));

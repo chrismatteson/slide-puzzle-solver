@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LOW_TILE_CONFIDENCE,
   listDoubtfulPositions,
   swapPositions,
   tileNumberAt,
 } from "../src/app/picture-review.ts";
+import { createBlankChooser } from "../src/app/view.ts";
 import { assemblePicture } from "../src/picture/assemble.ts";
 import { checkArrangement } from "../src/picture/arrangement.ts";
 import { type Arrangement } from "../src/picture/types.ts";
@@ -59,5 +60,68 @@ describe("picture review of a near-identical exchange", () => {
     if (result.status !== "fixed") throw new Error(`expected fixed, got ${result.status}`);
     const exchanged = result.swapped.map((cell) => result.arrangement.solved.indexOf(cell));
     expect(listDoubtfulPositions(result.arrangement)).toEqual(exchanged.sort((a, b) => a - b));
+  });
+});
+
+// The tests run in node, so there is no document: a recording stand-in for the few DOM calls the
+// chooser makes (a full DOM library for one assertion was not worth a new dependency).
+interface FakeElement {
+  tag: string;
+  attributes: Map<string, string>;
+  children: (FakeElement | string)[];
+  width?: number;
+  height?: number;
+  setAttribute: (name: string, value: string) => void;
+  addEventListener: () => void;
+  append: (...nodes: (FakeElement | string)[]) => void;
+  getContext: () => null;
+}
+
+function createFakeElement(tag: string): FakeElement {
+  const element: FakeElement = {
+    tag,
+    attributes: new Map(),
+    children: [],
+    setAttribute: (name, value) => element.attributes.set(name, value),
+    addEventListener: () => undefined,
+    append: (...nodes) => element.children.push(...nodes),
+    getContext: () => null,
+  };
+  return element;
+}
+
+function collect(element: FakeElement, tag: string): FakeElement[] {
+  const found = element.tag === tag ? [element] : [];
+  for (const child of element.children) {
+    if (typeof child !== "string") found.push(...collect(child, tag));
+  }
+  return found;
+}
+
+describe("the empty-slot chooser", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders every cell as a button and marks the current empty cell", () => {
+    vi.stubGlobal("document", { createElement: createFakeElement });
+    const crop = { side: 2, rgb: new Uint8ClampedArray(2 * 2 * 3) };
+    const chooser = createBlankChooser({
+      size: 3,
+      cells: Array.from({ length: 9 }, () => crop),
+      blank: 4,
+      onPick: () => undefined,
+      onCancel: () => undefined,
+    }) as unknown as FakeElement; // createBlankChooser returns an HTMLElement; the fake document made it a FakeElement.
+    const cells = collect(chooser, "button").filter((b) =>
+      b.attributes.get("id")?.startsWith("blank-cell-"),
+    );
+    expect(cells.map((b) => b.attributes.get("id"))).toEqual(
+      Array.from({ length: 9 }, (_, i) => `blank-cell-${String(i)}`),
+    );
+    const current = cells.filter((b) => b.attributes.get("aria-pressed") === "true");
+    expect(current.map((b) => b.attributes.get("id"))).toEqual(["blank-cell-4"]);
+    expect(current[0]?.attributes.get("class")).toContain("selected");
+    expect(current[0]?.attributes.get("aria-label")).toContain("currently the empty slot");
   });
 });

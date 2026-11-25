@@ -3,7 +3,7 @@ import { type CellReading, type Rejection, checkReading } from "../puzzle/consis
 import { type ClassifierWeights } from "./classifier.ts";
 import { decodePermutation } from "./decode.ts";
 import { type BoardCandidate, findBoardCandidates } from "./find-board.ts";
-import { type Point, type Quad } from "./geometry.ts";
+import { type Point, type Quad, orderQuadCorners } from "./geometry.ts";
 import { refineQuad } from "./refine.ts";
 import {
   OUTLINE_INSET_RANGE,
@@ -77,17 +77,18 @@ function buildAttempt(
   return attempt;
 }
 
-/** Reads the board in `quad` (full-image coordinates) as every grid size, one crop per cell. */
+/** Reads the board in `quad` (full-image coordinates) as each of `sizes`, one crop per cell. */
 function readQuad(
   grey: GreyImage,
   quad: Quad,
   kind: BoardCandidate["kind"],
   weights: ClassifierWeights,
+  sizes: readonly GridSize[],
 ): Reading[] {
   const rect = rectifyQuad(grey, quad);
   const range = kind === "tiles" ? TILES_INSET_RANGE : OUTLINE_INSET_RANGE;
   const grids = { 3: findGrid(rect, 3, range), 4: findGrid(rect, 4, range) };
-  return GRID_SIZES.map((size) => ({
+  return sizes.map((size) => ({
     attempt: buildAttempt(rect, quad, size, grids[size], weights, CENTRED_CROP),
     rect,
     grids,
@@ -135,19 +136,69 @@ export function detectCandidates(image: RgbaImage): DetectedCandidates {
   return { grey, views, candidates, scaleToFullSize };
 }
 
-export function readBoard(image: RgbaImage, weights: ClassifierWeights): ReadResult {
-  const { grey, views, candidates, scaleToFullSize } = detectCandidates(image);
-  if (candidates.length === 0) {
-    return { status: "no-board", message: "No board-like shape was found in the photo." };
-  }
+/** The user's own board outline for a re-read: `quad` replaces the board search, `size` the size guess. */
+export interface ReadOptions {
+  /** Corners of the tile area in image pixels, in any order; `prepareUserQuad` orders them. */
+  quad?: Quad;
+  size?: GridSize;
+}
 
+/**
+ * The corners the user placed, in TL, TR, BR, BL order, checked before any pixel is read: a corner outside
+ * the photo or a crossed quad would give a reading of nothing, and a NaN corner never ends. Throws with
+ * a message that says what is wrong.
+ */
+export function prepareUserQuad(quad: Quad, image: RgbaImage): Quad {
+  const ordered = orderQuadCorners(quad);
+  if (ordered.some((p) => p.x < 0 || p.y < 0 || p.x > image.width || p.y > image.height))
+    throw new Error("the corners must lie inside the photo");
+  return ordered;
+}
+
+export function readBoard(
+  image: RgbaImage,
+  weights: ClassifierWeights,
+  options: ReadOptions = {},
+): ReadResult {
+  const sizes = options.size === undefined ? GRID_SIZES : [options.size];
+  let best: Reading | undefined;
+  if (options.quad) {
+    // The user placed the corners on the tiles, so there is nothing to search and nothing to refine.
+    const quad = prepareUserQuad(options.quad, image);
+    const grey = convertToGrey(image);
+    for (const reading of readQuad(grey, quad, "tiles", weights, sizes)) {
+      if (isBetter(reading.attempt, best?.attempt)) best = reading;
+    }
+  } else {
+    best = readBestCandidate(detectCandidates(image), weights, sizes);
+    if (!best)
+      return { status: "no-board", message: "No board-like shape was found in the photo." };
+  }
+  if (!best) throw new Error("no attempt produced");
+  // Only the winner is read with augmented crops: it costs several times a plain read.
+  // Every size asked for is re-read, since the plain reading may have picked the wrong one.
+  const { rect, grids, attempt: first } = best;
+  let final: Attempt | undefined;
+  for (const size of sizes) {
+    const attempt = buildAttempt(rect, first.quad, size, grids[size], weights, AUGMENTED_CROPS);
+    if (isBetter(attempt, final)) final = attempt;
+  }
+  return buildReadResult(final ?? first);
+}
+
+/** Reads the detected candidates in order and returns the best reading; undefined if there are none. */
+function readBestCandidate(
+  { grey, views, candidates, scaleToFullSize }: DetectedCandidates,
+  weights: ClassifierWeights,
+  sizes: readonly GridSize[],
+): Reading | undefined {
   let best: Reading | undefined;
   for (const candidate of candidates) {
     // The raw hull and its edge-snapped refinement are both read; the reading decides which is right.
     const quads = [candidate.quad];
     if (candidate.kind === "silhouette") quads.push(refineQuad(views, candidate.quad));
     for (const quad of quads) {
-      for (const reading of readQuad(grey, scaleToFullSize(quad), candidate.kind, weights)) {
+      for (const reading of readQuad(grey, scaleToFullSize(quad), candidate.kind, weights, sizes)) {
         if (isBetter(reading.attempt, best?.attempt)) best = reading;
       }
     }
@@ -158,16 +209,7 @@ export function readBoard(image: RgbaImage, weights: ClassifierWeights): ReadRes
     )
       break;
   }
-  if (!best) throw new Error("no attempt produced");
-  // Only the winner is read with augmented crops: it costs several times a plain read.
-  // Both grid sizes are re-read, since the plain reading may have picked the wrong one.
-  const { rect, grids, attempt: first } = best;
-  let final: Attempt | undefined;
-  for (const size of GRID_SIZES) {
-    const attempt = buildAttempt(rect, first.quad, size, grids[size], weights, AUGMENTED_CROPS);
-    if (isBetter(attempt, final)) final = attempt;
-  }
-  return buildReadResult(final ?? first);
+  return best;
 }
 
 function buildReadResult(best: Attempt): ReadResult {

@@ -68,6 +68,12 @@ function scoreSeams(
   return total / (2 * (size + 1) * SAMPLES);
 }
 
+/** Seam score of `quad` at the finest baseline the snap ends on, so scores of different quads compare. */
+export function measureSeamScore(grey: GreyImage, quad: Quad, size: GridSize): number {
+  const side = Math.hypot(quad[1].x - quad[0].x, quad[1].y - quad[0].y);
+  return scoreSeams(grey, quad, size, side, BASELINES[BASELINES.length - 1] as number);
+}
+
 /**
  * Coordinate search over the eight corner coordinates, halving the step each time no move helps,
  * once per baseline from coarse to fine. Returns `quad` unchanged if nothing scores better.

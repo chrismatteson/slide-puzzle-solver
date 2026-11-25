@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { type Page, expect, test } from "@playwright/test";
 import { loadPatternTables } from "../src/puzzle/pattern-db-node.ts";
-import { solve } from "../src/puzzle/solver.ts";
+import { parsePictureLabel } from "../scripts/labels.ts";
+import { solveLabelledPuzzle } from "./helpers.ts";
 
 const FIXTURES = `${import.meta.dirname}/../test/fixtures`;
 const OWNER_PHOTO = `${FIXTURES}/owner-picture/picture-4x4-01.jpg`;
@@ -12,30 +13,9 @@ const tables = await loadPatternTables();
 // loaded machine. Same margin as app.e2e.ts.
 const READ_TIMEOUT_MS = 30_000;
 
-interface PictureLabel {
-  size: 4;
-  blank: number;
-  /** solved[p]: photo cell of the tile that belongs at solved position p; -1 at the empty slot's home. */
-  solved: number[];
-}
-
-const label = JSON.parse(
-  readFileSync(`${FIXTURES}/owner-picture/picture-4x4-01.json`, "utf8"),
-) as PictureLabel;
-
-/** Tile number at each solved position (0 at the home), and the photo's board, from the label. */
-function computeLabelledPuzzle(): { solvedNumbers: number[]; board: number[]; moves: number } {
-  const home = label.solved.indexOf(-1);
-  const solvedNumbers = label.solved.map((_, p) => (p === home ? 0 : p < home ? p + 1 : p));
-  const board = new Array<number>(label.solved.length).fill(0);
-  label.solved.forEach((cell, p) => {
-    if (cell !== -1) board[cell] = solvedNumbers[p] as number;
-  });
-  const result = solve({ size: label.size, blankHome: home, cells: board }, { tables });
-  if (result.status !== "solved") throw new Error("the labelled puzzle is not solvable");
-  return { solvedNumbers, board, moves: result.moves.length };
-}
-const expected = computeLabelledPuzzle();
+const labelPath = `${FIXTURES}/owner-picture/picture-4x4-01.json`;
+const label = parsePictureLabel(JSON.parse(readFileSync(labelPath, "utf8")), labelPath);
+const expected = solveLabelledPuzzle(label, tables);
 
 async function openApp(page: Page): Promise<string[]> {
   const errors: string[] = [];

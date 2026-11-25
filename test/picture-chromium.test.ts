@@ -20,7 +20,7 @@ function readChromiumDecode(): { width: number; height: number; data: Uint8Clamp
 
 describe("the owner's photo as decoded by Chromium (960x1280)", () => {
   it("assembles as labelled", () => {
-    const reading = readPictureBoard(readChromiumDecode(), 4);
+    const reading = readPictureBoard(readChromiumDecode(), { size: 4 });
     if ("status" in reading) throw new Error(reading.message);
     expect(reading.blank).toBe(ownerLabel.blank);
     const start = performance.now();

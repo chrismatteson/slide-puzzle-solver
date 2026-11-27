@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import jpeg from "jpeg-js";
 import { describe, expect, it } from "vitest";
+import { isSolvable } from "../src/puzzle/board.ts";
+import { toBoard } from "../src/picture/arrangement.ts";
 import { createProfile, findBestProfileMatch, matchProfile } from "../src/picture/profile.ts";
 import { cutTileCrops } from "../src/picture/read.ts";
 import { type PictureReading, TILE_SIDE } from "../src/picture/types.ts";
@@ -79,6 +81,34 @@ describe("puzzle profile from procedural pictures", () => {
     const result = expectMatch(matchProfile(second.reading, profile));
     expect(Math.min(...result.arrangement.confidence)).toBe(0);
     expect(result.confidence).toBe(0);
+  });
+});
+
+describe("the empty slot of a recognised puzzle", () => {
+  it("comes from the saved puzzle, not from the reader's guess", () => {
+    const picture = createPicture(4, 21);
+    // Saved after the user chose the empty slot (the reading's blank is the real one).
+    const first = createReading(picture, 4, scrambleOrder(4, 6, 60, 1), 6);
+    const profile = createProfile(first.reading, first.arrangement);
+
+    const second = createReading(picture, 4, scrambleOrder(4, 6, 70, 2), 6, { gain: 0.8 });
+    const wrongCell = second.reading.blank === 0 ? 1 : 0;
+    const guessed = { ...second.reading, blank: wrongCell, blankConfidence: 0.2 };
+    const result = expectMatch(matchProfile(guessed, profile));
+    expect(result.blank).toBe(second.reading.blank);
+    expect(result.arrangement.solved).toEqual(second.arrangement.solved);
+    const board = toBoard({ ...guessed, blank: result.blank }, result.arrangement);
+    expect(board.cells[second.reading.blank]).toBe(0);
+    expect(isSolvable(board)).toBe(true);
+    expect(findBestProfileMatch(guessed, [profile])?.blank).toBe(second.reading.blank);
+  });
+
+  it("is the reader's cell when that is right", () => {
+    const picture = createPicture(3, 22);
+    const first = createReading(picture, 3, scrambleOrder(3, 4, 30, 1), 4);
+    const profile = createProfile(first.reading, first.arrangement);
+    const second = createReading(picture, 3, scrambleOrder(3, 4, 30, 2), 4);
+    expect(expectMatch(matchProfile(second.reading, profile)).blank).toBe(second.reading.blank);
   });
 });
 

@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { assemblePicture } from "../src/picture/assemble.ts";
+import { type EdgeCosts, assemblePicture, searchLayoutsPerHome } from "../src/picture/assemble.ts";
 import { TILE_SIDE, type TileCrop } from "../src/picture/types.ts";
 import { type Quad } from "../src/vision/geometry.ts";
 import { readPhoto } from "../scripts/read-photo.ts";
 import { cutTileCrops } from "../src/picture/read.ts";
+import { createRandom } from "../scripts/random.ts";
+import { createFlatCrop } from "./picture-fixtures.ts";
 
 const DIR = "test/fixtures/owner-picture/";
 
@@ -76,5 +78,47 @@ describe("assemblePicture on a clean synthetic picture", () => {
     const crops = makeCrops(3, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
     for (const blank of [-1, 9, 1.5])
       expect(() => assemblePicture(crops, 3, blank)).toThrow(/empty slot/);
+  });
+});
+
+describe("beam width", () => {
+  /** Random 4x4 edge costs on a plain scale (about 0.5-3.5 seam units), seeded. */
+  function randomCosts(seed: number): EdgeCosts {
+    const random = createRandom(seed);
+    const matrix = () =>
+      Array.from({ length: 16 }, () => Array.from({ length: 16 }, () => 0.5 + 3 * random()));
+    const open = () => Array.from({ length: 16 }, () => 0.5 * random());
+    return {
+      right: matrix(),
+      down: matrix(),
+      missing: 1.3,
+      open: { left: open(), top: open(), right: open(), bottom: open() },
+    };
+  }
+  const cheapest = (costs: EdgeCosts, beamWidth?: number) =>
+    Math.min(
+      ...searchLayoutsPerHome(costs, 4, beamWidth)
+        .flat()
+        .map((layout) => layout.cost),
+    );
+
+  it("finds as cheap a layout at the default width as at 1600, where 200 does not", () => {
+    // Seed 4 was found by scanning seeds 1-60: best cost 24.082 at 200, 23.703 at 400 and 1600. Uniform
+    // random costs are harder than a photo's: 200 falls short on 38 of the 60 seeds and 400 reaches the
+    // width-1600 cost on 13 of those 38, so this pins one case where the default width is what fixes it.
+    const costs = randomCosts(4);
+    const converged = cheapest(costs, 1600);
+    expect(cheapest(costs, 200)).toBeGreaterThan(converged + 0.01);
+    expect(cheapest(costs)).toBeCloseTo(converged, 9);
+  });
+});
+
+describe("assemblePicture on featureless tiles", () => {
+  it("returns a layout when most tiles are the same flat colour", () => {
+    // Identical tiles cost 0 against each other, which used to make every normalised cost NaN.
+    const cells = Array.from({ length: 9 }, () => createFlatCrop(240, 240, 240));
+    const arrangement = assemblePicture(cells, 3, 8);
+    expect(arrangement.solved).toHaveLength(9);
+    expect(arrangement.solved.filter((cell) => cell === -1)).toHaveLength(1);
   });
 });

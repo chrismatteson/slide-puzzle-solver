@@ -39,6 +39,8 @@ export type ProfileMatch =
   | {
       status: "match";
       arrangement: Arrangement;
+      /** Photo cell of the empty slot as the saved puzzle has it; may differ from `reading.blank`. */
+      blank: number;
       /** Lowest per-tile confidence, 0..1. */
       confidence: number;
     }
@@ -60,12 +62,11 @@ function shrinkCrop(crop: TileCrop): Float32Array {
 }
 
 /**
- * Thumbnails of `crops` scaled per channel so that, over the whole photo, each channel averages
+ * Thumbnails (from shrinkCrop) scaled per channel so that, over the whole photo, each channel averages
  * TARGET_MEAN. That cancels exposure and white balance of the photo as a whole, which is what
  * differs between two photos of one puzzle; local glare is left to the tolerance.
  */
-function normaliseThumbnails(crops: readonly TileCrop[]): Uint8Array[] {
-  const thumbs = crops.map(shrinkCrop);
+function normaliseThumbnails(thumbs: readonly Float32Array[]): Uint8Array[] {
   const sums = [0, 0, 0];
   for (const thumb of thumbs) {
     for (let i = 0; i < THUMB_BYTES; i++) sums[i % 3] = (sums[i % 3] ?? 0) + (thumb[i] ?? 0);
@@ -109,7 +110,9 @@ export function createProfile(reading: PictureReading, arrangement: Arrangement)
   if (blankHome < 0) throw new Error("arrangement has no empty-slot position (-1)");
   // Normalise over the photo's tiles only, as matchProfile does; the empty slot would skew the means.
   const cells = listTileCells(reading);
-  const thumbs = normaliseThumbnails(cells.map((cell) => reading.cells[cell] as TileCrop));
+  const thumbs = normaliseThumbnails(
+    cells.map((cell) => shrinkCrop(reading.cells[cell] as TileCrop)),
+  );
   const thumbOfCell = new Map(cells.map((cell, i) => [cell, thumbs[i] as Uint8Array]));
   const tiles = arrangement.solved.flatMap((cell) => {
     if (cell === -1) return [];
@@ -121,7 +124,7 @@ export function createProfile(reading: PictureReading, arrangement: Arrangement)
 }
 
 /**
- * Assigns each tile cell of `reading` to a solved position of the remembered puzzle. Rejects the
+ * Finds the empty slot and assigns each other cell of `reading` to a solved position of the remembered puzzle. Rejects the
  * photo when the tiles are too different from the profile's. Per-tile confidence is how much closer
  * the chosen tile is than the next best choice for that cell or for that tile (0 when two tiles look
  * the same, so the user is asked to confirm those).
@@ -133,18 +136,35 @@ export function matchProfile(reading: PictureReading, profile: PuzzleProfile): P
       reason: `the photo is ${String(reading.size)}x${String(reading.size)} but the saved puzzle is ${String(profile.size)}x${String(profile.size)}`,
     };
   }
-  const cells = listTileCells(reading);
   const remembered = profile.tiles.map(decodeThumbnail);
-  if (cells.length !== remembered.length) {
+  if (reading.cells.length - 1 !== remembered.length) {
     throw new Error(
-      `profile has ${String(remembered.length)} tiles, the photo has ${String(cells.length)}`,
+      `profile has ${String(remembered.length)} tiles, the photo has ${String(reading.cells.length - 1)}`,
     );
   }
-  const thumbs = normaliseThumbnails(cells.map((cell) => reading.cells[cell] as TileCrop));
-  const cost = thumbs.map((thumb) => remembered.map((tile) => measureDifference(thumb, tile)));
-  const tileOfRow = solveAssignment(cost);
-  const total = tileOfRow.reduce((sum, tile, row) => sum + (cost[row]?.[tile] ?? 0), 0);
-  const meanDifference = total / cells.length;
+  // The empty slot is not taken from the reading: the reader's guess is often wrong and the user may
+  // have chosen another cell when the puzzle was saved. It is the cell whose leaving out leaves the
+  // best fit, because the empty slot matches none of the saved tiles. The reader's guess is tried first
+  // so that it wins a tie.
+  const shrunk = reading.cells.map(shrinkCrop);
+  let best:
+    | { blank: number; cells: number[]; cost: number[][]; tileOfRow: number[]; mean: number }
+    | undefined;
+  const candidates = [
+    reading.blank,
+    ...reading.cells.flatMap((_, cell) => (cell === reading.blank ? [] : [cell])),
+  ];
+  for (const blank of candidates) {
+    const cells = reading.cells.flatMap((_, cell) => (cell === blank ? [] : [cell]));
+    const thumbs = normaliseThumbnails(cells.map((cell) => shrunk[cell] as Float32Array));
+    const cost = thumbs.map((thumb) => remembered.map((tile) => measureDifference(thumb, tile)));
+    const tileOfRow = solveAssignment(cost);
+    const total = tileOfRow.reduce((sum, tile, row) => sum + (cost[row]?.[tile] ?? 0), 0);
+    const mean = total / cells.length;
+    if (best === undefined || mean < best.mean) best = { blank, cells, cost, tileOfRow, mean };
+  }
+  if (!best) throw new Error("the photo has no cells");
+  const { blank, cells, cost, tileOfRow, mean: meanDifference } = best;
   if (meanDifference > MAX_MEAN_DIFFERENCE) {
     return {
       status: "mismatch",
@@ -169,6 +189,7 @@ export function matchProfile(reading: PictureReading, profile: PuzzleProfile): P
   return {
     status: "match",
     arrangement: { size: profile.size, solved, confidence },
+    blank,
     confidence: Math.min(...tileConfidences),
   };
 }
@@ -180,8 +201,10 @@ export function matchProfile(reading: PictureReading, profile: PuzzleProfile): P
 export function findBestProfileMatch(
   reading: PictureReading,
   profiles: readonly PuzzleProfile[],
-): { profile: PuzzleProfile; arrangement: Arrangement } | undefined {
-  let best: { profile: PuzzleProfile; arrangement: Arrangement; confidence: number } | undefined;
+): { profile: PuzzleProfile; arrangement: Arrangement; blank: number } | undefined {
+  let best:
+    | { profile: PuzzleProfile; arrangement: Arrangement; blank: number; confidence: number }
+    | undefined;
   for (const profile of profiles) {
     let match;
     try {
@@ -190,7 +213,12 @@ export function findBestProfileMatch(
       continue; // a damaged saved puzzle must not stop the photo being read
     }
     if (match.status === "match" && match.confidence > (best?.confidence ?? -1))
-      best = { profile, arrangement: match.arrangement, confidence: match.confidence };
+      best = {
+        profile,
+        arrangement: match.arrangement,
+        blank: match.blank,
+        confidence: match.confidence,
+      };
   }
-  return best && { profile: best.profile, arrangement: best.arrangement };
+  return best && { profile: best.profile, arrangement: best.arrangement, blank: best.blank };
 }

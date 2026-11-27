@@ -10,17 +10,10 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type GridSize } from "../src/puzzle/board.ts";
 import { assemblePicture } from "../src/picture/assemble.ts";
-import { type Quad } from "../src/vision/geometry.ts";
 import { type RgbaImage } from "../src/vision/image.ts";
 import { cutTileCrops, readPictureBoard } from "../src/picture/read.ts";
+import { parsePictureLabel, type PictureLabel } from "./labels.ts";
 import { readPhoto } from "./read-photo.ts";
-
-interface PictureLabel {
-  size: GridSize;
-  blank: number;
-  solved: number[];
-  tilesQuad: Quad;
-}
 
 /** What the app's own path made of a photo, with no labels given. */
 interface RealPathOutcome {
@@ -43,19 +36,6 @@ interface Outcome {
   /** Fewest exchanges of two solved positions that turn the assembly-only result into the truth. */
   swapsToTruth: number;
   realPath: RealPathOutcome;
-}
-
-function parseLabel(raw: unknown, where: string): PictureLabel {
-  if (typeof raw !== "object" || raw === null) throw new Error(`${where}: label must be an object`);
-  const { size, blank, solved, tilesQuad } = raw as Record<string, unknown>;
-  if (size !== 3 && size !== 4) throw new Error(`${where}: size must be 3 or 4`);
-  if (typeof blank !== "number") throw new Error(`${where}: blank must be a number`);
-  if (!Array.isArray(solved) || solved.length !== size * size)
-    throw new Error(`${where}: solved must have ${String(size * size)} entries`);
-  if (!Array.isArray(tilesQuad) || tilesQuad.length !== 4)
-    throw new Error(`${where}: tilesQuad must have 4 corners`);
-  // Hand-written or generated outside the type system: shape checked above, values trusted below.
-  return { size, blank, solved: solved as number[], tilesQuad: tilesQuad as unknown as Quad };
 }
 
 /** Adjacent tile pairs of a layout as "a>b" (b right of a) and "a^b" (b below a); the home has none. */
@@ -113,7 +93,10 @@ function evaluateRealPath(image: RgbaImage, label: PictureLabel): RealPathOutcom
 }
 
 function evaluatePhoto(dir: string, name: string): Outcome {
-  const label = parseLabel(JSON.parse(readFileSync(join(dir, `${name}.json`), "utf8")), name);
+  const label = parsePictureLabel(
+    JSON.parse(readFileSync(join(dir, `${name}.json`), "utf8")),
+    name,
+  );
   const image = readPhoto(join(dir, `${name}.jpg`));
   const crops = cutTileCrops(image, label.tilesQuad, label.size);
   const started = performance.now();

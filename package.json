@@ -23,6 +23,8 @@
     "pictures:fetch": "tsx scripts/picture-sources.ts fetch",
     "gen:picture": "bash scripts/python-env.sh scripts/gen_picture_photos.py --split eval --count 144 --seed 20261122 --out data/picture-eval",
     "eval:picture": "tsx scripts/eval-picture.ts data/picture-eval data/picture-eval-results.json",
+    "gen:corrections": "bash scripts/python-env.sh scripts/gen_correction_photos.py --split eval --count 48 --seed 20261124 --out data/corrections",
+    "eval:corrections": "tsx scripts/eval-corrections.ts data/corrections data/corrections-results.json",
     "train": "bash scripts/python-env.sh scripts/train_classifier.py",
     "e2e": "playwright test",
     "build-pattern-db": "tsx scripts/build-pattern-db.ts"

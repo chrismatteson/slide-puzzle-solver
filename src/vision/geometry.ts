@@ -200,6 +200,36 @@ export function orderCorners(corners: readonly Point[]): Quad {
   return [pickCorner(0), pickCorner(1), pickCorner(2), pickCorner(3)];
 }
 
+/** True for four finite corners that turn the same way at every corner (a crossed or flat one is not convex). */
+export function isConvexQuad(points: readonly Point[]): boolean {
+  if (points.length !== 4) return false;
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const turn = computeCross(
+      points[i] as Point,
+      points[(i + 1) % 4] as Point,
+      points[(i + 2) % 4] as Point,
+    );
+    if (turn === 0 || Number.isNaN(turn) || (sign !== 0 && Math.sign(turn) !== sign)) return false;
+    sign = Math.sign(turn);
+  }
+  return true;
+}
+
+/**
+ * The four corners a user (or anything else) gave, put in the order top-left, top-right, bottom-right,
+ * bottom-left. A crossed polygon (bow-tie, or corners on a line) throws; a rotated or mirrored order of a
+ * convex quad is put in that order by position, by the same rule as `orderCorners`, which the board
+ * detector uses, so a board tilted past 45 degrees reads the same from both. Throws unless there are
+ * exactly four points with finite x and y.
+ */
+export function orderQuadCorners(points: readonly Point[]): Quad {
+  if (points.length !== 4 || !points.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y)))
+    throw new Error("a quad needs four finite corners");
+  if (!isConvexQuad(points)) throw new Error("the corners cross each other");
+  return orderCorners(points);
+}
+
 export function measureDistance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }

@@ -56,7 +56,7 @@ function loadImage(path: string): RgbaImage {
  * from the frame's; the tolerance admits that and nothing looser, so a quad that is too big, too
  * small or on the wrong object fails.
  */
-const DETECTION_TOLERANCE = 0.12;
+export const DETECTION_TOLERANCE = 0.12;
 /** Frame-accurate quads, for the second figure reported. */
 const TIGHT_TOLERANCE = 0.05;
 

@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import jpeg from "jpeg-js";
 import { describe, expect, it } from "vitest";
-import { isNumberedReading, MIN_CONFIDENT_SHARE } from "../src/app/routing.ts";
+import {
+  isNumberedReading,
+  keepUserCorners,
+  MIN_CONFIDENT_SHARE,
+  reassemblePicture,
+} from "../src/app/routing.ts";
+import { toBoard } from "../src/picture/arrangement.ts";
+import { createPicture, createReading, scrambleOrder } from "./picture-fixtures.ts";
 import { MIN_CELL_CONFIDENCE } from "../src/puzzle/consistency.ts";
 import { defaultWeights } from "../src/vision/default-weights.ts";
 import { type Quad } from "../src/vision/geometry.ts";
@@ -83,4 +90,30 @@ describe("isNumberedReading on the fixtures", () => {
     },
     30_000,
   );
+});
+
+describe("reassemblePicture", () => {
+  it("arranges the reading with the chosen blank and does not call it recognised", () => {
+    const { reading } = createReading(createPicture(3, 2), 3, scrambleOrder(3, 0, 10, 4), 0);
+    const result = reassemblePicture(reading, 4);
+    // Checked by tsc: the result is a picture reading without narrowing it first.
+    const asPicture: { kind: "picture" } = result;
+    expect(asPicture.kind).toBe("picture");
+    expect(result.reading.blank).toBe(4);
+    expect(result.reading.blankConfidence).toBe(1);
+    expect(result.recognised).toBe(false);
+    expect(toBoard(result.reading, result.arrangement).cells[4]).toBe(0);
+  });
+});
+
+describe("keepUserCorners", () => {
+  it("keeps the options of a read from corners the user placed", () => {
+    const options = { quad, size: 3 as const };
+    expect(keepUserCorners(options)).toBe(options);
+  });
+
+  it("keeps nothing of a read the app did alone", () => {
+    expect(keepUserCorners({})).toBeUndefined();
+    expect(keepUserCorners({ size: 4 })).toBeUndefined();
+  });
 });

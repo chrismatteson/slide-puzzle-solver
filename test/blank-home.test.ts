@@ -10,17 +10,9 @@ import {
 } from "../src/puzzle/board.ts";
 import { loadPatternTables } from "../src/puzzle/pattern-db-node.ts";
 import { solve } from "../src/puzzle/solver.ts";
+import { createRandom } from "../scripts/random.ts";
 
 const tables = await loadPatternTables();
-
-/** Deterministic pseudo-random numbers, so a failing scramble can be reproduced. */
-function createRandom(seed: number): () => number {
-  let state = seed;
-  return () => {
-    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-    return state / 2 ** 32;
-  };
-}
 
 /** Slides the blank around at random, never straight back; the result is always solvable. */
 function scramble(goal: Board, moves: number, random: () => number): Board {

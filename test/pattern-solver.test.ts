@@ -8,6 +8,7 @@ import {
 } from "../src/puzzle/board.ts";
 import { loadPatternTables } from "../src/puzzle/pattern-db-node.ts";
 import { solve } from "../src/puzzle/solver.ts";
+import { createRandom } from "../scripts/random.ts";
 
 const tables = await loadPatternTables();
 
@@ -47,18 +48,6 @@ const KORF: [number, number[], number][] = [
 
 // Korf #88, among the hardest 4x4 states (h = 62): optimal search takes far longer than any budget here.
 const VERY_HARD = convertFromKorf([15, 14, 8, 12, 10, 11, 9, 13, 2, 6, 5, 1, 3, 7, 4, 0]);
-
-/** Small seeded generator so the timing states are the same on every run. */
-function createRandom(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 /** A uniformly random solvable 4x4 state: shuffle all 16 cells, swap two tiles if that is unsolvable. */
 function createRandomBoard(random: () => number): Board {

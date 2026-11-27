@@ -4,7 +4,9 @@ import { type Board } from "../puzzle/board.ts";
 import SolveWorker from "./solve.worker.ts?worker&inline";
 import { type RgbaImage } from "../vision/image.ts";
 import { type PuzzleProfile } from "../picture/profile.ts";
-import { type PhotoReading, type ReadMode } from "./routing.ts";
+import { type PictureReading } from "../picture/types.ts";
+import { type ReadOptions } from "../vision/read-board.ts";
+import { type PhotoReading, type PictureArranged, type ReadMode } from "./routing.ts";
 import {
   type SolveOutcome,
   type SolveRequest,
@@ -18,6 +20,9 @@ export class CancelledError extends Error {
     super("cancelled");
   }
 }
+
+/** What the vision worker answers a request with, other than failing it; `type` says which request. */
+type VisionAnswer = Extract<VisionResponse, { type: "read" | "reassemble" }>;
 
 interface Pending<T> {
   resolve(value: T): void;
@@ -33,7 +38,14 @@ function takePending<T>(pending: Map<number, Pending<T>>, id: number): Pending<T
 export interface VisionClient {
   /** Resolves once the worker has loaded the classifier. */
   ready: Promise<void>;
-  read(image: RgbaImage, mode: ReadMode, profiles: PuzzleProfile[]): Promise<PhotoReading>;
+  read(
+    image: RgbaImage,
+    mode: ReadMode,
+    profiles: PuzzleProfile[],
+    options?: ReadOptions,
+  ): Promise<PhotoReading>;
+  /** Arranges a picture reading with the empty slot at photo cell `blank`. */
+  reassemble(reading: PictureReading, blank: number): Promise<PictureArranged>;
 }
 
 export interface SolverClient {
@@ -46,13 +58,14 @@ export interface SolverClient {
 
 export function createVisionClient(): VisionClient {
   const worker = new Worker(new URL("./vision.worker.ts", import.meta.url), { type: "module" });
-  const pending = new Map<number, Pending<PhotoReading>>();
+  const pending = new Map<number, Pending<VisionAnswer>>();
   let nextId = 0;
   const ready = new Promise<void>((resolve, reject) => {
     worker.addEventListener("message", (event: MessageEvent<VisionResponse>) => {
       const message = event.data;
       if (message.type === "ready") resolve();
-      else if (message.type === "read") takePending(pending, message.id)?.resolve(message.result);
+      else if (message.type === "read" || message.type === "reassemble")
+        takePending(pending, message.id)?.resolve(message);
       else takePending(pending, message.id)?.reject(new Error(message.message));
     });
     worker.addEventListener("error", (event) => {
@@ -62,17 +75,34 @@ export function createVisionClient(): VisionClient {
       pending.clear();
     });
   });
+  // Requests are copied, not transferred: the page reads the same photo again if the user switches
+  // between numbered and picture reading, or corrects the corners.
+  function send(build: (id: number) => VisionRequest): Promise<VisionAnswer> {
+    const id = nextId++;
+    return new Promise<VisionAnswer>((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      worker.postMessage(build(id));
+    });
+  }
   return {
     ready,
-    read(image, mode, profiles) {
-      const id = nextId++;
-      return new Promise<PhotoReading>((resolve, reject) => {
-        pending.set(id, { resolve, reject });
-        const request: VisionRequest = { type: "read", id, image, mode, profiles };
-        // Copied, not transferred: the page reads the same photo again if the user switches between
-        // numbered and picture reading.
-        worker.postMessage(request);
-      });
+    async read(image, mode, profiles, options) {
+      const answer = await send((id) => ({
+        type: "read",
+        id,
+        image,
+        mode,
+        profiles,
+        ...(options ? { options } : {}),
+      }));
+      if (answer.type !== "read") throw new Error(`a read was answered with "${answer.type}"`);
+      return answer.result;
+    },
+    async reassemble(reading, blank) {
+      const answer = await send((id) => ({ type: "reassemble", id, reading, blank }));
+      if (answer.type !== "reassemble")
+        throw new Error(`a reassemble was answered with "${answer.type}"`);
+      return answer.result;
     },
   };
 }

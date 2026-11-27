@@ -62,3 +62,28 @@ def test_generator_writes_jpg_and_json_pairs(tmp_path: Path) -> None:
     photo.save(tmp_path / "0000.jpg")
     (tmp_path / "0000.json").write_text(json.dumps(label))
     assert json.loads((tmp_path / "0000.json").read_text())["size"] == 4
+
+
+def test_paintings_set_leaves_out_other_sets_of_the_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Line art is listed in the same manifest; it must not turn up in the paintings of the picture eval,
+    # and its file is not even needed (only paintings are opened).
+    manifest = tmp_path / "picture-sources.toml"
+    manifest.write_text(
+        "\n".join(
+            f'[[picture]]\nname = "{name}"\nsplit = "{split}"\n{extra}'
+            for name, split, extra in [
+                ("painting-dev", "dev", ""),
+                ("painting-eval", "eval", 'set = "painting"\n'),
+                ("bear-line-art", "dev", 'set = "line-art"\n'),
+                ("cat-line-art", "eval", 'set = "line-art"\n'),
+            ]
+        )
+    )
+    make_picture().save(tmp_path / "painting-dev.jpg")
+    make_picture().save(tmp_path / "painting-eval.jpg")
+    monkeypatch.setattr(gen, "MANIFEST", manifest)
+    monkeypatch.setattr(gen, "PICTURE_DIR", tmp_path)
+    assert list(gen.load_pictures("dev")) == ["painting-dev"]
+    assert list(gen.load_pictures("eval")) == ["painting-eval"]
